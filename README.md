@@ -98,7 +98,7 @@ Right Click  | Open Context Menu
 
 MIT License
 
-Copyright (c) 2024 Aether Dev
+Copyright (c) R.O. - 2025 Aether Dev
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
