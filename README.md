@@ -42,7 +42,7 @@ Installation
 
 Clone the repository:
 
-git clone [https://github.com/DeltaEpiales/aether-os.git](https://github.com/DeltaEpiales/aether-os.git)
+git clone [https://github.com/DeltaEpiales/aether.git](https://github.com/DeltaEpiales/aether.git)
 cd aether-os
 
 
