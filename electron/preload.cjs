@@ -1,33 +1,47 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('aetherSystem', {
+  // System Vital Statistics
   getStats: () => ipcRenderer.invoke('system:stats'),
-  getSpecs: () => ipcRenderer.invoke('system:specs'), // NEW
-  getInstalledApps: () => ipcRenderer.invoke('system:get-installed-apps'),
-  scanSteamGames: () => ipcRenderer.invoke('system:scan-steam'),
+  getSpecs: () => ipcRenderer.invoke('system:specs'),
   
-  // File System (Enhanced)
+  // Software Management
+  getInstalledApps: () => ipcRenderer.invoke('system:get-installed-apps'),
+  scanGames: () => ipcRenderer.invoke('system:scan-games'),
+  
+  // Execution
+  launchGame: (game) => ipcRenderer.invoke('system:launch-game', game),
+  launchApp: (path) => ipcRenderer.invoke('system:launch-app', path),
+  openExternal: (url) => ipcRenderer.send('system:open-external', url),
+  
+  // Hardware Control
+  getVolume: () => ipcRenderer.invoke('system:get-volume'),
+  setVolume: (val) => ipcRenderer.send('system:set-volume', val),
+  
+  // File System
   readDir: (path) => ipcRenderer.invoke('fs:read-dir', path),
   writeFile: (data) => ipcRenderer.invoke('fs:write-file', data),
+  createDir: (path) => ipcRenderer.invoke('fs:create-dir', path),
+  rename: (data) => ipcRenderer.invoke('fs:rename', data),
+  delete: (path) => ipcRenderer.invoke('fs:delete', path),
   readFile: (path) => ipcRenderer.invoke('fs:read-file', path),
   getHomeDir: () => ipcRenderer.invoke('fs:get-home'),
   
-  // App Launchers
-  launchApp: (path) => ipcRenderer.invoke('system:launch-app', path),
-  launchSteam: (id) => ipcRenderer.invoke('system:launch-steam', id),
-  openExternal: (url) => ipcRenderer.send('system:open-external', url),
+  // Extended File System (New)
+  trashItem: (path) => ipcRenderer.invoke('fs:trash-item', path),
   
-  // OS Functions
-  readClipboard: () => ipcRenderer.invoke('os:read-clipboard'),
-  writeClipboard: (text) => ipcRenderer.send('os:write-clipboard', text),
-  sendNotification: (title, body) => ipcRenderer.send('os:notification', { title, body }),
+  // Service Health (New)
+  checkLocalService: (port) => ipcRenderer.invoke('system:check-service', port),
+
+  // Events
+  onGameActivity: (callback) => ipcRenderer.on('game:activity', (event, data) => callback(data)),
   
-  // Window/Power
+  // OS Shell Commands
+  notification: (title, body) => ipcRenderer.send('os:notification', { title, body }),
   shutdown: () => ipcRenderer.send('system:shutdown'),
   reboot: () => ipcRenderer.send('system:reboot'),
-  restartShell: () => ipcRenderer.send('system:restart-shell'), // NEW
-  minimize: () => ipcRenderer.send('window:minimize'),
-  close: () => ipcRenderer.send('window:close'),
+  minimize: () => ipcRenderer.send('system:minimize'),
   
-  platform: process.platform,
+  // Environment Info
+  platform: process.platform
 });

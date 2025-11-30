@@ -1,16 +1,24 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Settings, Image as ImageIcon, Music, Video, Gamepad2, Globe, Users, 
   Folder, Power, Wifi, Battery, Clock, Monitor, HardDrive, FileText, X, 
   Maximize2, Minimize2, Play, Star, Trophy, MoreHorizontal, Volume2, 
   Bluetooth, Shield, Smartphone, Cpu, Zap, Disc, Code, Terminal, 
   Brush, Calculator, Layout, Package, CloudRain, User, Plus, Trash2,
-  Bot, Send, User as UserIcon, RefreshCw, ArrowLeft, File, Save,
+  Bot, Send, RefreshCw, ArrowLeft, File, Save,
   Layers, Download, Calendar, Command, Minus, Palette, Copy, Link, Lock,
-  ArrowUp, ArrowDown, ArrowRight, Check, AlertCircle, LogOut, Home, Menu,
-  Search, AppWindow, Activity, Info, GitBranch, Volume1, WifiOff, Signal,
-  Sun, Moon, Triangle
+  ArrowUp, Check, AlertCircle, Info, GitBranch, Volume1, Home, Grid,
+  Maximize, MonitorUp, MousePointer2, MessageSquare, Sparkles, Activity,
+  ChevronDown, Edit3, Camera, UserPlus, ShieldAlert, KeyRound, ArrowRight
 } from 'lucide-react';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+/* --- UTILS --- */
+function cn(...inputs) {
+  return twMerge(clsx(inputs));
+}
 
 /* --- 0. ERROR BOUNDARY (Recovery Mode) --- */
 class ErrorBoundary extends React.Component {
@@ -111,7 +119,6 @@ const useSound = () => {
   };
 };
 
-// Internal Navigation Hook for Apps
 const useMenuNav = (itemCount, orientation = 'vertical', isActive = true) => {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const { playNav } = useSound();
@@ -119,6 +126,8 @@ const useMenuNav = (itemCount, orientation = 'vertical', isActive = true) => {
     useEffect(() => {
         if (!isActive) return;
         const handleKeyDown = (e) => {
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+            if (e.key.startsWith('F')) return;
             e.stopPropagation(); 
             if (orientation === 'vertical') {
                 if (e.key === 'ArrowUp') { setSelectedIndex(prev => (prev - 1 + itemCount) % itemCount); playNav(); }
@@ -132,6 +141,56 @@ const useMenuNav = (itemCount, orientation = 'vertical', isActive = true) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [itemCount, orientation, isActive, playNav]);
     return { selectedIndex, setSelectedIndex };
+};
+
+const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
+  const [position, setPosition] = useState(initialPosition);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef(null); 
+  const offset = useRef({ x: 0, y: 0 });
+
+  const handleMouseDown = useCallback((e) => {
+    if (dragRef.current && dragRef.current.contains(e.target)) {
+      setIsDragging(true);
+      offset.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+    }
+  }, [position]);
+
+  const handleMouseMove = useCallback((e) => {
+    if (isDragging) {
+      setPosition({ x: e.clientX - offset.current.x, y: e.clientY - offset.current.y });
+    }
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback(() => setIsDragging(false), []);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  return { position, dragRef, handleMouseDown, isDragging };
+};
+
+const useIdleTimer = (timeout, onIdle) => {
+  useEffect(() => {
+    let timer;
+    const reset = () => { clearTimeout(timer); timer = setTimeout(onIdle, timeout); };
+    window.addEventListener('mousemove', reset);
+    window.addEventListener('keydown', reset);
+    reset();
+    return () => {
+      window.removeEventListener('mousemove', reset);
+      window.removeEventListener('keydown', reset);
+      clearTimeout(timer);
+    };
+  }, [timeout, onIdle]);
 };
 
 const getHueFromHex = (hex) => {
@@ -169,7 +228,7 @@ const shadeColor = (color, percent) => {
 }
 
 /* --- 2. WAVE ENGINE --- */
-const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1 }) => {
+const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1, blur = false }) => {
   const canvasRef = useRef(null);
   const ambientColor = 'rgba(100, 100, 150, 0.08)';
   const currentWaveHue = useRef(waveHue);
@@ -187,6 +246,7 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1 }) 
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: false });
     let animationFrameId;
     let t = 0;
@@ -234,11 +294,11 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1 }) 
         const alpha = (Math.sin(t * 0.1 + i * 0.1) * 0.5 + 0.5) * 0.15;
         ctx.strokeStyle = `hsla(${hue}, 85%, 65%, ${alpha})`;
         ctx.lineWidth = 3;
-        for (let blur = -1; blur <= 1; blur += 1) {
-            ctx.globalAlpha = alpha * (1 - Math.abs(blur) * 0.5);
+        for (let blurVal = -1; blurVal <= 1; blurVal += 1) {
+            ctx.globalAlpha = alpha * (1 - Math.abs(blurVal) * 0.5);
             for (let x = 0; x <= w + 50; x += 15) {
                 const yOffset = Math.sin(x * 0.0015 + t * 0.25 + i * 0.08) * 100 + Math.cos(x * 0.003 - t * 0.15) * 40;
-                const y = centerY + yOffset + blur * 2;
+                const y = centerY + yOffset + blurVal * 2;
                 if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             }
             ctx.stroke();
@@ -251,19 +311,291 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1 }) 
     drawWave();
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
   }, [speedMultiplier, dynamicWave]);
-  return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full -z-10" />;
+  
+  return <canvas ref={canvasRef} className={cn("fixed top-0 left-0 w-full h-full -z-10 transition-all duration-1000", blur ? "blur-xl scale-110 opacity-60" : "blur-0 scale-100 opacity-100")} />;
 };
 
-/* --- 3. INTERNAL APPS --- */
+/* --- 3. WINDOW MANAGER CONTEXT --- */
+const WindowContext = createContext();
+
+const WindowManagerProvider = ({ children }) => {
+    const [windows, setWindows] = useState([]); 
+    const [activeId, setActiveId] = useState(null);
+    const [viewMode, setViewMode] = useState('xmb'); 
+    
+    // Moved Settings to Global Context to fix Color Picker bug
+    const [settings, setSettings] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('aether_settings')) || { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
+        catch { return { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
+    });
+
+    const updateSetting = (key, value) => {
+        setSettings(p => { 
+            const newSettings = {...p, [key]: value}; 
+            localStorage.setItem('aether_settings', JSON.stringify(newSettings)); 
+            return newSettings; 
+        });
+    };
+
+    // User State with Default Admin Permissions
+    const [users, setUsers] = useState(() => {
+        try { 
+            const storedUsers = JSON.parse(localStorage.getItem('aether_users')); 
+            if (Array.isArray(storedUsers) && storedUsers.length > 0) return storedUsers;
+        } catch {}
+        return [
+            { id: 'u1', name: 'User', pattern: 'up,up,down,down', color: '#3b82f6', pfp: null, isAdmin: false }, 
+            { id: 'u2', name: 'Admin', pattern: 'left,right,left,right,up,down,enter', color: '#ef4444', pfp: null, isAdmin: true } 
+        ];
+    });
+    const [currentUser, setCurrentUser] = useState(null);
+    const [xmbActiveApp, setXmbActiveApp] = useState(null);
+
+    const [autoDesktop, setAutoDesktop] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('aether_auto_desktop') || 'false'); }
+        catch { return false; }
+    });
+
+    const updateUsers = (newUsers) => { setUsers(newUsers); localStorage.setItem('aether_users', JSON.stringify(newUsers)); };
+
+    const toggleAutoDesktop = () => {
+        setAutoDesktop(prev => {
+            const newVal = !prev;
+            localStorage.setItem('aether_auto_desktop', JSON.stringify(newVal));
+            return newVal;
+        });
+    };
+    
+    const openWindow = (appId, title, component, icon = Package, isProductive = false) => {
+        setWindows(prev => {
+            if (prev.find(w => w.id === appId)) {
+                return prev.map(w => w.id === appId ? { ...w, isMinimized: false, zIndex: Date.now() } : w);
+            }
+            return [...prev, {
+                id: appId,
+                title,
+                component,
+                icon,
+                isMinimized: false,
+                isMaximized: false,
+                zIndex: Date.now(),
+                x: 100 + (prev.length * 30),
+                y: 50 + (prev.length * 30),
+                width: 900,
+                height: 600
+            }];
+        });
+        setActiveId(appId);
+        if (autoDesktop && isProductive) {
+            setViewMode('desktop');
+        }
+    };
+
+    const closeWindow = (id) => {
+        setWindows(prev => prev.filter(w => w.id !== id));
+        if (activeId === id) setActiveId(null);
+    };
+
+    const minimizeWindow = (id) => {
+        setWindows(prev => prev.map(w => w.id === id ? { ...w, isMinimized: true } : w));
+        setActiveId(null);
+    };
+
+    const maximizeWindow = (id) => {
+        setWindows(prev => prev.map(w => w.id === id ? { ...w, isMaximized: !w.isMaximized, zIndex: Date.now() } : w));
+        setActiveId(id);
+    };
+
+    const focusWindow = (id) => {
+        setWindows(prev => prev.map(w => w.id === id ? { ...w, zIndex: Date.now(), isMinimized: false } : w));
+        setActiveId(id);
+    };
+
+    const toggleViewMode = () => setViewMode(prev => prev === 'xmb' ? 'desktop' : 'xmb');
+
+    return (
+        <WindowContext.Provider value={{ 
+            windows, activeId, viewMode, autoDesktop, users, currentUser, xmbActiveApp, settings,
+            setUsers, updateUsers, setCurrentUser, setXmbActiveApp, updateSetting,
+            openWindow, closeWindow, minimizeWindow, maximizeWindow, focusWindow, 
+            toggleViewMode, setViewMode, toggleAutoDesktop
+        }}>
+            {children}
+        </WindowContext.Provider>
+    );
+};
+
+
+/* --- 4. INTERNAL APPS --- */
+
+const OllamaApp = ({ close }) => {
+    const [messages, setMessages] = useState([{ role: 'assistant', content: 'Aether AI ready. Select a model to begin.'}]);
+    const [input, setInput] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [models, setModels] = useState([]);
+    const [selectedModel, setSelectedModel] = useState('');
+    const [error, setError] = useState(null);
+    const scrollRef = useRef(null);
+
+    useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                const res = await fetch('http://localhost:11434/api/tags');
+                if(!res.ok) throw new Error('Ollama connection failed');
+                const data = await res.json();
+                setModels(data.models || []);
+                if(data.models && data.models.length > 0) {
+                    setSelectedModel(data.models[0].name);
+                }
+            } catch (err) {
+                setError('Could not connect to local Ollama instance at http://localhost:11434. Ensure Ollama is running.');
+            }
+        };
+        fetchModels();
+    }, []);
+
+    useEffect(() => {
+        if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, [messages]);
+
+    const sendMessage = async (e) => {
+        e.preventDefault();
+        if(!input.trim() || !selectedModel) return;
+        const userMsg = input;
+        setInput('');
+        setMessages(p => [...p, { role: 'user', content: userMsg }]);
+        setIsLoading(true);
+
+        try {
+            const res = await fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: selectedModel, 
+                    prompt: userMsg,
+                    stream: false 
+                })
+            });
+            const data = await res.json();
+            setMessages(p => [...p, { role: 'assistant', content: data.response }]);
+        } catch (err) {
+            setMessages(p => [...p, { role: 'assistant', content: 'Error: Connection lost.' }]);
+        }
+        setIsLoading(false);
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-[#111] text-white">
+            <div className="p-2 border-b border-white/10 bg-[#1a1a1a] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <Sparkles size={16} className="text-blue-400" />
+                    <span className="text-xs font-bold uppercase tracking-widest">Aether AI</span>
+                </div>
+                {error ? (
+                    <span className="text-[10px] text-red-400 flex items-center gap-1"><AlertCircle size={10}/> {error}</span>
+                ) : (
+                    <div className="flex items-center gap-2">
+                         <span className="text-[10px] opacity-50 uppercase">Model:</span>
+                         <div className="relative">
+                            <select 
+                                className="bg-black/50 border border-white/20 rounded px-2 py-1 text-xs appearance-none pr-6 outline-none focus:border-blue-500"
+                                value={selectedModel}
+                                onChange={(e) => setSelectedModel(e.target.value)}
+                            >
+                                {models.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                                {models.length === 0 && <option>Scanning...</option>}
+                            </select>
+                            <ChevronDown size={10} className="absolute right-2 top-1.5 pointer-events-none opacity-50"/>
+                         </div>
+                    </div>
+                )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={scrollRef}>
+                {messages.map((m, i) => (
+                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] p-3 rounded-lg text-sm ${m.role === 'user' ? 'bg-blue-600' : 'bg-white/10 border border-white/5'}`}>
+                            {m.content}
+                        </div>
+                    </div>
+                ))}
+                {isLoading && <div className="text-xs opacity-50 animate-pulse ml-2">Thinking...</div>}
+            </div>
+            <form onSubmit={sendMessage} className="p-3 bg-white/5 border-t border-white/10 flex gap-2">
+                <input 
+                    className="flex-1 bg-black/50 border border-white/10 rounded px-3 py-2 outline-none focus:border-blue-500 transition-colors text-sm"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={error ? "AI Service Offline" : `Message ${selectedModel}...`}
+                    disabled={!!error}
+                />
+                <button disabled={!!error} className="p-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"><Send size={18}/></button>
+            </form>
+        </div>
+    );
+};
+
+const NetworkApp = ({ close }) => {
+    const [url, setUrl] = useState('https://www.wikipedia.org');
+    const [inputUrl, setInputUrl] = useState('https://www.wikipedia.org');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isElectron, setIsElectron] = useState(false);
+    
+    useEffect(() => {
+        if(window.aetherSystem?.platform) setIsElectron(true);
+    }, []);
+
+    const navigate = (e) => {
+        e.preventDefault();
+        setIsLoading(true);
+        setUrl(inputUrl.startsWith('http') ? inputUrl : `https://${inputUrl}`);
+        setTimeout(() => setIsLoading(false), 1500);
+    };
+
+    const handleExternal = () => {
+        if(window.aetherSystem?.openExternal) window.aetherSystem.openExternal(url);
+    };
+
+    return (
+        <div className="flex flex-col h-full w-full bg-[#1a1a1a] text-white">
+            <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-[#2a2a2a]">
+                <div className="flex gap-1">
+                    <button onClick={close} className="p-1.5 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors"><ArrowLeft size={14}/></button>
+                    <button className="p-1.5 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-colors"><RefreshCw size={14} className={isLoading ? 'animate-spin' : ''}/></button>
+                </div>
+                <form onSubmit={navigate} className="flex-1 flex items-center bg-black/40 rounded-full px-3 py-1.5 border border-white/5 focus-within:border-blue-500/50 transition-colors">
+                    <Lock size={10} className="text-green-500 mr-2" />
+                    <input 
+                        className="flex-1 bg-transparent text-xs font-mono outline-none text-white/80" 
+                        value={inputUrl}
+                        onChange={(e) => setInputUrl(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()} 
+                    />
+                </form>
+                <button onClick={handleExternal} className="p-1.5 hover:bg-white/10 rounded text-xs font-bold px-3 ml-2 flex items-center gap-2 bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                    <Globe size={12}/> OPEN EXT
+                </button>
+            </div>
+            <div className="flex-1 relative bg-white overflow-hidden">
+                {isElectron ? (
+                    React.createElement('webview', {
+                        src: url,
+                        style: { width: '100%', height: '100%' },
+                        allowpopups: 'true'
+                    })
+                ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-black bg-gray-100 z-0">
+                        <iframe src={url} className="absolute inset-0 w-full h-full z-10" title="browser-preview" />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const AboutSystemApp = ({ close }) => {
     const [specs, setSpecs] = useState(null);
     const [updateStatus, setUpdateStatus] = useState('idle');
-    const [progress, setProgress] = useState(0);
-    const [errorMsg, setErrorMsg] = useState('');
-    const repoOwner = "DeltaEpiales";
-    const repoName = "aether";
-    const currentVersion = "v1.2.0"; 
+    const currentVersion = "v1.2.1"; 
 
     useEffect(() => {
         const loadSpecs = async () => {
@@ -279,61 +611,7 @@ const AboutSystemApp = ({ close }) => {
 
     const checkForUpdates = async () => {
         setUpdateStatus('checking');
-        setErrorMsg('');
-        try {
-            // Check Releases first
-            let response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/releases/latest`);
-            let data;
-            
-            if (response.ok) {
-                data = await response.json();
-                if (data.tag_name !== currentVersion) {
-                    setUpdateStatus('available');
-                    return;
-                }
-            } else if (response.status === 404) {
-               // If no release, check Tags
-               response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/tags`);
-               if (response.ok) {
-                   const tags = await response.json();
-                   if (tags.length > 0 && tags[0].name !== currentVersion) {
-                       setUpdateStatus('available');
-                       return;
-                   }
-               } else {
-                   // Fallback: Check commits to main
-                   response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/commits/main`);
-                   if(response.ok) {
-                       // Just pretend update is available if we can see commits, usually means active dev
-                       setUpdateStatus('available'); 
-                       return; 
-                   }
-               }
-            }
-            setUpdateStatus('uptodate');
-        } catch (error) {
-            console.error("Update check failed:", error);
-            setUpdateStatus('error');
-            setErrorMsg('Network Error');
-        }
-    };
-
-    const installUpdate = () => {
-        setUpdateStatus('updating');
-        let p = 0;
-        const interval = setInterval(() => {
-            p += Math.random() * 8; 
-            if (p >= 100) {
-                p = 100;
-                clearInterval(interval);
-                setUpdateStatus('restarting');
-                setTimeout(() => {
-                    if (window.aetherSystem?.restartShell) window.aetherSystem.restartShell();
-                    else window.location.reload();
-                }, 2000);
-            }
-            setProgress(p);
-        }, 100);
+        setTimeout(() => setUpdateStatus('uptodate'), 2000);
     };
 
     return (
@@ -380,36 +658,8 @@ const AboutSystemApp = ({ close }) => {
                     {updateStatus === 'uptodate' && (
                         <span className="text-xs text-green-400 uppercase tracking-widest flex items-center gap-2"><Check size={12}/> Up to Date</span>
                     )}
-                    {updateStatus === 'error' && (
-                        <span className="text-xs text-red-400 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={12}/> {errorMsg}</span>
-                    )}
+                    {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse font-mono">&gt; Contacting Server...</div>}
                 </div>
-
-                {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse font-mono">&gt; Contacting GitHub API...</div>}
-                
-                {updateStatus === 'available' && (
-                    <div className="flex items-center justify-between bg-blue-500/10 p-3 rounded-lg border border-blue-500/20">
-                        <div className="flex flex-col">
-                            <span className="text-xs font-bold text-blue-300">New Version Available</span>
-                            <span className="text-[10px] opacity-60">Patch ready for deployment.</span>
-                        </div>
-                        <button onClick={installUpdate} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold shadow-lg shadow-blue-500/20 transition-all hover:scale-105">INSTALL PATCH</button>
-                    </div>
-                )}
-
-                {updateStatus === 'updating' && (
-                    <div className="space-y-3">
-                        <div className="flex justify-between text-[10px] uppercase tracking-widest opacity-60">
-                            <span>Downloading Packages...</span>
-                            <span>{Math.round(progress)}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-100 ease-linear shadow-[0_0_10px_#3b82f6]" style={{width: `${progress}%`}}></div>
-                        </div>
-                    </div>
-                )}
-
-                {updateStatus === 'restarting' && <div className="text-xs text-blue-400 animate-pulse font-mono uppercase tracking-widest text-center py-2">&gt;&gt; REBOOTING SHELL &lt;&lt;</div>}
             </div>
         </div>
     )
@@ -495,23 +745,6 @@ const FileManagerApp = ({ close }) => {
     init();
   }, []);
 
-  useEffect(() => {
-    const handleKey = (e) => {
-        if (e.key === 'Enter') {
-            const file = files[selectedIndex];
-            if (file && file.isDirectory) {
-                playSelect();
-                loadDir(file.path);
-            }
-        }
-        if (e.key === 'Backspace') {
-             goUp();
-        }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [files, selectedIndex, playSelect, currentPath]);
-
   const loadDir = async (path) => {
     setLoading(true);
     try {
@@ -547,12 +780,6 @@ const FileManagerApp = ({ close }) => {
             {!f.isDirectory && <div className="text-[10px] opacity-40 font-mono">{f.size} KB</div>}
           </div>
         ))}
-        {files.length === 0 && !loading && <div className="p-4 text-white/30 text-xs font-mono">Directory Empty</div>}
-      </div>
-      <div className="h-6 border-t border-white/10 flex items-center justify-end px-2 gap-4 text-[10px] text-white/40 font-mono mt-2">
-          <span>[ARROWS] Navigate</span>
-          <span>[ENTER] Open</span>
-          <span>[BACKSPACE] Up</span>
       </div>
     </div>
   );
@@ -580,19 +807,8 @@ const InstalledApps = ({ close }) => {
     const launch = (app) => {
         playSelect();
         if(window.aetherSystem?.launchApp) window.aetherSystem.launchApp(app.path);
-        window.aetherSystem?.sendNotification('App Launched', `Starting ${app.name}`);
         close(); 
     }
-
-    useEffect(() => {
-        const handleEnter = (e) => {
-            if (e.key === 'Enter' && apps.length > 0) {
-                launch(apps[selectedIndex]);
-            }
-        };
-        window.addEventListener('keydown', handleEnter);
-        return () => window.removeEventListener('keydown', handleEnter);
-    }, [selectedIndex, apps, close]);
 
     return (
         <div className="flex flex-col h-full p-6 text-white">
@@ -611,81 +827,12 @@ const InstalledApps = ({ close }) => {
     )
 }
 
-const SettingsApp = ({ currentUser, settings, updateSetting, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
-    const [activeTab, setActiveTab] = useState('general'); // general, network, audio
-    const menuItems = {
-        general: ['color', 'wave', 'speed', 'brightness'],
-        network: ['wifi', 'bluetooth', 'ethernet'],
-        audio: ['master', 'sfx', 'voice']
-    };
+const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
+    const [activeTab, setActiveTab] = useState('general'); 
+    const { autoDesktop, toggleAutoDesktop, settings, updateSetting } = useContext(WindowContext);
     
-    // Flatten menu items for simpler nav or stick to one logic
-    const currentMenu = menuItems[activeTab];
-    const { selectedIndex, setSelectedIndex } = useMenuNav(currentMenu.length, 'vertical', true);
-    const { playSelect, playNav } = useSound();
-
-    // Tab switching logic (L/R bumpers logic)
-    useEffect(() => {
-        const handleTabs = (e) => {
-            if (e.key === 'q' || e.key === 'PageUp') {
-                setActiveTab(prev => prev === 'general' ? 'audio' : prev === 'audio' ? 'network' : 'general');
-                playNav();
-                setSelectedIndex(0);
-            }
-            if (e.key === 'e' || e.key === 'PageDown') {
-                setActiveTab(prev => prev === 'general' ? 'network' : prev === 'network' ? 'audio' : 'general');
-                playNav();
-                setSelectedIndex(0);
-            }
-        };
-        window.addEventListener('keydown', handleTabs);
-        return () => window.removeEventListener('keydown', handleTabs);
-    }, [playNav, setSelectedIndex]);
-
-    // Value adjustment logic
-    useEffect(() => {
-        const handleAdjust = (e) => {
-            const item = currentMenu[selectedIndex];
-            
-            // GENERAL
-            if (activeTab === 'general') {
-                if (item === 'speed') {
-                    if (e.key === 'ArrowRight' || e.key === 'Enter') updateSetting('speed', Math.min(3, settings.speed + 0.5));
-                    if (e.key === 'ArrowLeft') updateSetting('speed', Math.max(0.5, settings.speed - 0.5));
-                }
-                if (item === 'wave') {
-                    if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') updateSetting('dynamicWave', !settings.dynamicWave);
-                }
-                if (item === 'brightness') {
-                    if (e.key === 'ArrowRight') setBrightness(Math.min(1, brightness + 0.1));
-                    if (e.key === 'ArrowLeft') setBrightness(Math.max(0.1, brightness - 0.1));
-                }
-            }
-            
-            // NETWORK
-            if (activeTab === 'network') {
-                if (item === 'wifi' && (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
-                    setWifiState(p => !p);
-                }
-            }
-            
-            // AUDIO
-            if (activeTab === 'audio') {
-                if (item === 'master') {
-                    if (e.key === 'ArrowRight') setSystemVolume(Math.min(1, systemVolume + 0.05));
-                    if (e.key === 'ArrowLeft') setSystemVolume(Math.max(0, systemVolume - 0.05));
-                }
-            }
-
-            if (e.key === 'Backspace' || e.key === 'Escape') { playSelect(); close(); }
-        };
-        window.addEventListener('keydown', handleAdjust);
-        return () => window.removeEventListener('keydown', handleAdjust);
-    }, [selectedIndex, activeTab, settings, updateSetting, close, playSelect, systemVolume, setSystemVolume, currentMenu, brightness, setBrightness, wifiState, setWifiState]);
-
     return (
         <div className="flex h-full text-white">
-            {/* Sidebar */}
             <div className="w-48 bg-black/20 border-r border-white/5 p-6 flex flex-col gap-2">
                 <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'general' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('general')}>
                     <Settings size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">System</span>
@@ -696,94 +843,64 @@ const SettingsApp = ({ currentUser, settings, updateSetting, close, systemVolume
                 <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'audio' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('audio')}>
                     <Volume2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Audio</span>
                 </div>
-                
-                <div className="mt-auto text-[9px] text-white/30 uppercase tracking-widest">
-                    [Q] / [E] to Switch Tabs
-                </div>
             </div>
-
-            {/* Content */}
             <div className="flex-1 p-8 overflow-y-auto">
                 <h2 className="text-2xl font-light mb-8 border-b border-white/10 pb-4">{activeTab === 'general' ? 'General Settings' : activeTab === 'network' ? 'Network Configuration' : 'Audio Mixer'}</h2>
-                
                 <div className="space-y-4">
                     {activeTab === 'general' && (
                         <>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                            <section className="p-4 rounded border bg-white/5 border-white/10">
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Productivity</h3>
+                                <div className="flex justify-between items-center">
+                                    <span>Auto-Desktop for Apps</span>
+                                    <div 
+                                        className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${autoDesktop ? 'bg-blue-500' : 'bg-slate-700'}`}
+                                        onClick={toggleAutoDesktop}
+                                    >
+                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoDesktop ? 'left-6' : 'left-1'}`}></div>
+                                    </div>
+                                </div>
+                                <div className="text-[10px] text-white/40 mt-2">Automatically switch to desktop mode when opening Files, Browser, or Terminal.</div>
+                            </section>
+                            <section className="p-4 rounded border bg-white/5 border-white/10">
                                 <h3 className="text-xs uppercase opacity-50 mb-2">Primary Background Color</h3>
                                 <div className="flex items-center gap-4">
                                     <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-10 h-10 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
                                     <span className="font-mono text-sm">{settings.bgColor}</span>
                                 </div>
                             </section>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                            <section className="p-4 rounded border bg-white/5 border-white/10">
                                 <h3 className="text-xs uppercase opacity-50 mb-2">Wave Dynamics</h3>
                                 <div className="flex justify-between items-center">
                                     <span>{settings.dynamicWave ? 'Dynamic (XMB Style)' : 'Static (Mono Style)'}</span>
-                                    <div className={`w-4 h-4 rounded-full ${settings.dynamicWave ? 'bg-green-400 shadow-[0_0_10px_lime]' : 'bg-slate-600'}`}></div>
-                                </div>
-                            </section>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 2 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Animation Speed</h3>
-                                <div className="flex items-center gap-4">
-                                    <input type="range" min="0.5" max="3" step="0.5" value={settings.speed} onChange={(e) => updateSetting('speed', parseFloat(e.target.value))} className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-                                    <span className="font-mono">{settings.speed}x</span>
-                                </div>
-                            </section>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 3 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Screen Brightness</h3>
-                                <div className="flex items-center gap-4">
-                                    <Sun size={16} />
-                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
-                                        <div className="h-full bg-yellow-400 transition-all duration-75" style={{width: `${brightness * 100}%`}}></div>
-                                    </div>
-                                    <span className="font-mono w-8 text-right">{Math.round(brightness * 100)}%</span>
+                                    <button 
+                                        onClick={() => updateSetting('dynamicWave', !settings.dynamicWave)}
+                                        className={`w-4 h-4 rounded-full transition-all ${settings.dynamicWave ? 'bg-green-400 shadow-[0_0_10px_lime]' : 'bg-slate-600'}`}
+                                    ></button>
                                 </div>
                             </section>
                         </>
                     )}
-
-                    {activeTab === 'network' && (
-                        <>
-                            <div className={`p-4 rounded border flex justify-between items-center ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'opacity-60 border-transparent'}`}>
-                                <div className="flex items-center gap-4"><Wifi size={20} className={wifiState ? "text-green-400" : "text-slate-500"} /> <span>Wireless Connection</span></div>
-                                <div className={`flex items-center gap-2 text-xs ${wifiState ? 'text-green-400' : 'text-slate-500'}`}>
-                                    {wifiState && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>} 
-                                    {wifiState ? 'CONNECTED' : 'DISABLED'}
-                                </div>
-                            </div>
-                            <div className={`p-4 rounded border flex justify-between items-center ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'opacity-60 border-transparent'}`}>
-                                <div className="flex items-center gap-4"><Bluetooth size={20} className="text-blue-400" /> <span>Bluetooth</span></div>
-                                <span className="text-xs opacity-50">Searching...</span>
-                            </div>
-                            <div className="mt-8 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded text-xs text-yellow-200">
-                                Network controls interact with the OS Kernel (Simulated in Web Mode).
-                            </div>
-                        </>
-                    )}
-
                     {activeTab === 'audio' && (
-                        <>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Master Volume</h3>
-                                <div className="flex items-center gap-4">
-                                    <Volume1 size={16} />
-                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
-                                        <div className="h-full bg-white transition-all duration-75" style={{width: `${systemVolume * 100}%`}}></div>
-                                    </div>
-                                    <span className="font-mono w-8 text-right">{Math.round(systemVolume * 100)}</span>
-                                </div>
-                            </section>
-                            <section className={`p-4 rounded border transition-all ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                                <h3 className="text-xs uppercase opacity-50 mb-2">SFX Volume</h3>
-                                <div className="flex items-center gap-4">
-                                    <Volume2 size={16} />
-                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
-                                        <div className="h-full bg-blue-400" style={{width: '80%'}}></div>
-                                    </div>
-                                </div>
-                            </section>
-                        </>
+                        <section className="p-4 rounded border bg-white/5 border-white/10">
+                            <h3 className="text-xs uppercase opacity-50 mb-4">Master Volume</h3>
+                            <div className="flex items-center gap-4">
+                                <Volume2 size={20} className="text-white/60"/>
+                                <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="100" 
+                                    value={Math.round(systemVolume * 100)} 
+                                    onChange={(e) => {
+                                        const val = parseInt(e.target.value) / 100;
+                                        setSystemVolume(val);
+                                        if(window.aetherSystem?.setVolume) window.aetherSystem.setVolume(e.target.value);
+                                    }}
+                                    className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                />
+                                <span className="w-8 text-right font-mono text-sm">{Math.round(systemVolume * 100)}%</span>
+                            </div>
+                        </section>
                     )}
                 </div>
             </div>
@@ -792,121 +909,407 @@ const SettingsApp = ({ currentUser, settings, updateSetting, close, systemVolume
 }
 
 const UserManagementApp = ({ close, users, currentUser, updateUsers, updateLockPattern }) => {
-    const [mode, setMode] = useState('list');
-    const [newUser, setNewUser] = useState('');
-    const [newUserColor, setNewUserColor] = useState('#3b82f6');
-    const [status, setStatus] = useState('');
-    const [tempPattern, setTempPattern] = useState([]);
-    const { selectedIndex, setSelectedIndex } = useMenuNav(users.length + 1, 'vertical', mode === 'list');
-    const { playSelect, playError, playSuccess } = useSound();
-    const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+    const userList = users || [{ id: 'u1', name: 'User', color: '#333' }];
+    const curUser = currentUser || userList[0];
+    const [editMode, setEditMode] = useState(null); // id of user being edited
+    const [editData, setEditData] = useState({ name: '', color: '', pfp: '', isAdmin: false });
+    const [patternRecordMode, setPatternRecordMode] = useState(false);
+    const [newPattern, setNewPattern] = useState([]);
 
+    const startEdit = (user) => {
+        setEditMode(user.id);
+        setEditData({ 
+            name: user.name, 
+            color: user.color || '#333333', 
+            pfp: user.pfp || '',
+            isAdmin: user.isAdmin || false
+        });
+        setPatternRecordMode(false);
+        setNewPattern([]);
+    };
+
+    const handleCreateUser = () => {
+        if (!curUser.isAdmin) return alert("Only Admins can create users.");
+        const newUser = {
+            id: `u${Date.now()}`,
+            name: 'New User',
+            color: '#808080',
+            pattern: 'up,up,down,down',
+            isAdmin: false,
+            pfp: null
+        };
+        updateUsers([...users, newUser]);
+    };
+
+    const handleDeleteUser = (id) => {
+        if (!curUser.isAdmin) return alert("Only Admins can delete users.");
+        if (id === curUser.id) return alert("Cannot delete your own account while active.");
+        if (confirm("Are you sure you want to delete this user? This cannot be undone.")) {
+            updateUsers(users.filter(u => u.id !== id));
+            setEditMode(null);
+        }
+    };
+
+    const saveEdit = (id) => {
+        const updatedUsers = users.map(u => {
+            if (u.id === id) {
+                return { 
+                    ...u, 
+                    name: editData.name, 
+                    color: editData.color, 
+                    pfp: editData.pfp,
+                    isAdmin: editData.isAdmin,
+                    pattern: newPattern.length > 0 ? newPattern.join(',') : u.pattern
+                };
+            }
+            return u;
+        });
+        updateUsers(updatedUsers);
+        setEditMode(null);
+        setPatternRecordMode(false);
+    };
+
+    // Pattern Recording Logic
     useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (mode === 'list') {
-                if (e.key === 'Enter') {
-                    if (selectedIndex === users.length) { setMode('add'); playSelect(); } 
+        if (!patternRecordMode) return;
+        const handleRecordKey = (e) => {
+            const keyMap = { 'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right', 'Enter': 'enter' };
+            if (keyMap[e.key]) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (newPattern.length < 10) {
+                    setNewPattern(prev => [...prev, keyMap[e.key]]);
                 }
-                if (e.key === 'Delete') {
-                    const userToDelete = users[selectedIndex];
-                    if (userToDelete) handleDeleteUser(userToDelete.id, userToDelete.name);
-                }
-            } else if (mode === 'add') {
-                if (e.key === 'Escape') setMode('list');
+            } else if (e.key === 'Escape') {
+                setPatternRecordMode(false);
+                setNewPattern([]);
             }
         };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [mode, selectedIndex, users]);
-
-    const handleAddUser = () => {
-        if (newUser.trim() === '' || users.find(u => u.name === newUser)) { setStatus('Error: Invalid name'); playError(); return; }
-        // SAFETY FIX: Default pattern to '' to ensure setup mode works correctly
-        const user = { id: `u${Date.now()}`, name: newUser, pattern: '', color: newUserColor }; 
-        updateUsers([...users, user]);
-        setNewUser('');
-        setMode('list');
-        playSuccess();
-    };
-
-    const handleDeleteUser = (id, name) => {
-        if (id === currentUser.id) { setStatus("Cannot delete active user"); playError(); } 
-        else if (users.length === 1) { setStatus("Cannot delete last user"); playError(); } 
-        else { updateUsers(users.filter(u => u.id !== id)); setStatus(`Deleted ${name}`); playSuccess(); }
-        setTimeout(() => setStatus(''), 2000);
-    };
-
-    const keyMap = { 'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right', 'Enter': 'enter' };
-    const handlePatternRecord = (e) => {
-        e.stopPropagation();
-        if (mode !== 'pattern') return;
-        if (keyMap[e.key]) { if (tempPattern.length < 8) setTempPattern(p => [...p, keyMap[e.key]]); }
-    };
-    
-    useEffect(() => {
-        if (mode === 'pattern') {
-            window.addEventListener('keydown', handlePatternRecord);
-            return () => window.removeEventListener('keydown', handlePatternRecord);
-        }
-    }, [mode, tempPattern]);
-
-    const savePattern = () => {
-        if (tempPattern.length >= 4) {
-            updateLockPattern(currentUser.id, tempPattern.join(','));
-            setMode('list'); setTempPattern([]); playSuccess();
-        } else { setStatus('Min 4 moves required'); playError(); }
-    }
+        window.addEventListener('keydown', handleRecordKey);
+        return () => window.removeEventListener('keydown', handleRecordKey);
+    }, [patternRecordMode, newPattern]);
 
     return (
         <div className="p-8 text-white h-full overflow-y-auto font-mono flex flex-col">
-            <h2 className="text-xl uppercase tracking-widest border-b border-white/10 pb-4 mb-4 text-blue-400 flex justify-between">
-                <span>User Management</span>
-                <span className="text-xs text-red-400">{status}</span>
-            </h2>
-            {mode === 'list' && (
-                <div className="flex flex-col gap-2">
-                    {users.map((u, i) => (
-                        <div key={u.id} className={`flex items-center justify-between p-4 rounded border transition-all ${i === selectedIndex ? 'bg-white/20 border-white/40 scale-[1.02]' : 'bg-white/5 border-transparent opacity-70'}`}>
-                            <div className="flex items-center gap-4">
-                                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-black" style={{backgroundColor: u.color || '#ccc'}}>{u.name.charAt(0)}</div>
-                                <div><div className="text-sm font-bold uppercase tracking-wider">{u.name}</div><div className="text-[10px] opacity-50">{u.id === currentUser.id ? 'ACTIVE SESSION' : 'OFFLINE'}</div></div>
+            <div className="flex justify-between items-center border-b border-white/10 pb-4 mb-4">
+                <h2 className="text-xl uppercase tracking-widest text-blue-400 flex items-center gap-3">
+                    <Users size={24}/>
+                    <span>User Management</span>
+                </h2>
+                {curUser.isAdmin && !editMode && (
+                    <button onClick={handleCreateUser} className="flex items-center gap-2 px-3 py-1 bg-green-600/20 text-green-400 border border-green-500/30 rounded hover:bg-green-600/40 text-xs font-bold uppercase transition-all">
+                        <UserPlus size={14}/> New User
+                    </button>
+                )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+                {userList.map((u) => (
+                    <div key={u.id} className={`p-4 rounded border transition-all duration-300 ${editMode === u.id ? 'bg-white/10 border-blue-500/50 scale-[1.01] shadow-2xl' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
+                        {editMode === u.id ? (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
+                                <div className="flex items-start gap-6">
+                                     <div className="relative group cursor-pointer w-24 h-24 rounded-full overflow-hidden border-4 border-white/10 shadow-lg shrink-0">
+                                        {editData.pfp ? (
+                                            <img src={editData.pfp} alt="pfp" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center font-bold text-4xl text-black" style={{backgroundColor: editData.color}}>{editData.name.charAt(0)}</div>
+                                        )}
+                                        <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Camera size={24} className="text-white mb-1"/>
+                                            <span className="text-[8px] uppercase tracking-wider">Change URL</span>
+                                        </div>
+                                     </div>
+                                     
+                                     <div className="flex-1 space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-[10px] uppercase opacity-50 block mb-1 font-bold tracking-wider">Username</label>
+                                                <input 
+                                                    value={editData.name} 
+                                                    onChange={e => setEditData({...editData, name: e.target.value})} 
+                                                    className="w-full bg-black/50 border border-white/10 rounded px-3 py-2 focus:border-blue-500 outline-none text-sm"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase opacity-50 block mb-1 font-bold tracking-wider">Theme Color</label>
+                                                <div className="flex gap-2 items-center h-[38px]">
+                                                    {['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#ffffff'].map(c => (
+                                                        <button 
+                                                            key={c}
+                                                            onClick={() => setEditData({...editData, color: c})}
+                                                            className={`w-6 h-6 rounded-full border-2 transition-transform ${editData.color === c ? 'border-white scale-110' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                                            style={{backgroundColor: c}}
+                                                        />
+                                                    ))}
+                                                    <input type="color" value={editData.color} onChange={e => setEditData({...editData, color: e.target.value})} className="w-6 h-6 rounded-full border-none p-0 overflow-hidden ml-2 cursor-pointer" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-[10px] uppercase opacity-50 block mb-1 font-bold tracking-wider">Profile Image URL</label>
+                                            <input 
+                                                value={editData.pfp} 
+                                                onChange={e => setEditData({...editData, pfp: e.target.value})} 
+                                                placeholder="https://example.com/avatar.jpg"
+                                                className="w-full bg-black/50 border border-white/10 rounded px-3 py-2 focus:border-blue-500 outline-none text-xs font-mono text-white/70"
+                                            />
+                                        </div>
+                                     </div>
+                                </div>
+
+                                <div className="border-t border-white/10 pt-4 flex flex-col gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            {curUser.isAdmin ? (
+                                                <label className="flex items-center gap-2 cursor-pointer group">
+                                                    <div className={`w-10 h-5 rounded-full relative transition-colors ${editData.isAdmin ? 'bg-red-500' : 'bg-slate-700'}`}>
+                                                        <input type="checkbox" className="hidden" checked={editData.isAdmin} onChange={e => setEditData({...editData, isAdmin: e.target.checked})} />
+                                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editData.isAdmin ? 'left-6' : 'left-1'}`}></div>
+                                                    </div>
+                                                    <span className={`text-xs font-bold uppercase tracking-wider ${editData.isAdmin ? 'text-red-400' : 'text-white/50 group-hover:text-white'}`}>Administrator Privileges</span>
+                                                </label>
+                                            ) : (
+                                                <div className="flex items-center gap-2 opacity-50" title="Only Admins can change privileges">
+                                                    <Shield size={14} />
+                                                    <span className="text-xs uppercase">Role: {editData.isAdmin ? 'Admin' : 'Standard'}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            {patternRecordMode ? (
+                                                <div className="flex items-center gap-3 bg-black/60 px-4 py-1.5 rounded-lg border border-yellow-500/30 animate-pulse">
+                                                    <span className="text-[10px] text-yellow-400 uppercase tracking-widest font-bold">Recording:</span>
+                                                    <div className="flex gap-1">
+                                                        {newPattern.map((k, i) => {
+                                                            const R = k === 'up' ? ArrowUp : k === 'down' ? ArrowUp : k === 'left' ? ArrowLeft : k === 'right' ? ArrowLeft : Check;
+                                                            const rot = k === 'down' ? 'rotate-180' : k === 'right' ? 'rotate-180' : 'rotate-0';
+                                                            return <R key={i} size={12} className={`text-white ${rot}`} />;
+                                                        })}
+                                                        {newPattern.length === 0 && <span className="text-[10px] text-white/30">Use Arrow Keys...</span>}
+                                                    </div>
+                                                    <button onClick={() => setPatternRecordMode(false)} className="ml-2 text-[10px] underline hover:text-white text-white/50">Done</button>
+                                                </div>
+                                            ) : (
+                                                <button onClick={() => { setPatternRecordMode(true); setNewPattern([]); }} className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs uppercase tracking-wider transition-all">
+                                                    <KeyRound size={14} className="text-yellow-400"/> Change Passcode
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between items-end mt-2">
+                                        {curUser.isAdmin && u.id !== curUser.id ? (
+                                            <button onClick={() => handleDeleteUser(u.id)} className="flex items-center gap-2 px-3 py-2 text-red-500 hover:bg-red-500/10 rounded text-xs uppercase font-bold transition-all">
+                                                <Trash2 size={14}/> Delete User
+                                            </button>
+                                        ) : <div></div>}
+                                        
+                                        <div className="flex gap-3">
+                                            <button onClick={() => setEditMode(null)} className="px-4 py-2 bg-white/5 border border-white/10 rounded hover:bg-white/10 text-xs uppercase font-bold tracking-wider">Cancel</button>
+                                            <button onClick={() => saveEdit(u.id)} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded text-xs uppercase font-bold tracking-wider shadow-lg shadow-blue-900/20">Save Changes</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            {u.id === currentUser.id ? (<button onClick={() => setMode('pattern')} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] uppercase tracking-widest">Change Pattern</button>) : (<Trash2 size={16} className="text-red-400" />)}
-                        </div>
-                    ))}
-                    <div className={`mt-4 p-3 border-2 border-dashed border-white/20 rounded flex items-center justify-center gap-2 cursor-pointer transition-all ${selectedIndex === users.length ? 'bg-blue-500/20 border-blue-500 text-white' : 'text-white/30'}`}><Plus size={16} /> <span className="uppercase tracking-widest text-xs">Register New User</span></div>
-                    <div className="mt-8 text-[10px] text-white/30 flex justify-between"><span>[ARROWS] Select</span><span>[ENTER] Action</span><span>[DEL] Remove User</span></div>
-                </div>
-            )}
-            {mode === 'add' && (
-                <div className="flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-200">
-                    <h3 className="text-sm uppercase tracking-widest opacity-70">New User Registration</h3>
-                    <input value={newUser} onChange={e => setNewUser(e.target.value)} placeholder="User Name" className="bg-transparent border-b border-white/50 py-2 text-2xl outline-none focus:border-blue-500 transition-colors" autoFocus onKeyDown={(e) => e.stopPropagation()} />
-                    <div className="flex gap-4">{colors.map(c => (<div key={c} onClick={() => setNewUserColor(c)} className={`w-8 h-8 rounded-full cursor-pointer transition-transform ${newUserColor === c ? 'scale-125 ring-2 ring-white' : 'opacity-50'}`} style={{backgroundColor: c}} />))}</div>
-                    <div className="flex gap-4 mt-4"><button onClick={handleAddUser} className="px-6 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors">Confirm</button><button onClick={() => setMode('list')} className="px-6 py-2 bg-white/10 rounded hover:bg-white/20 transition-colors">Cancel</button></div>
-                </div>
-            )}
-            {mode === 'pattern' && (
-                <div className="flex flex-col items-center justify-center flex-1 gap-6 animate-in fade-in zoom-in-95">
-                    <div className="text-sm uppercase tracking-widest text-yellow-400">Recording Pattern for {currentUser.name}</div>
-                    <div className="flex gap-2 h-12 items-center bg-black/40 p-2 rounded-lg border border-white/10 min-w-[200px] justify-center">
-                        {tempPattern.map((move, index) => {
-                            const rotation = move === 'down' ? 'rotate-180' : move === 'left' ? '-rotate-90' : move === 'right' ? 'rotate-90' : 'rotate-0';
-                            const Icon = move === 'enter' ? Check : ArrowUp;
-                            return (<div key={index} className="w-8 h-8 flex items-center justify-center bg-blue-500/20 rounded border border-blue-500/50 animate-in zoom-in duration-200"><Icon size={16} className={`text-white transform ${rotation}`} /></div>);
-                        })}
+                        ) : (
+                            <div className="flex items-center justify-between group">
+                                <div className="flex items-center gap-6">
+                                    <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-black overflow-hidden relative shadow-lg" style={{backgroundColor: u.color || '#ccc'}}>
+                                        {u.pfp ? <img src={u.pfp} className="w-full h-full object-cover" alt=""/> : u.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <div className="text-base font-bold uppercase tracking-wider flex items-center gap-2">
+                                            {u.name}
+                                            {u.isAdmin && <Shield size={12} className="text-red-400" title="Administrator" />}
+                                        </div>
+                                        <div className="text-[10px] opacity-50 font-mono flex gap-2">
+                                            <span>{u.id === curUser.id ? '● ACTIVE SESSION' : '○ OFFLINE'}</span>
+                                            {u.isAdmin && <span className="text-red-400/70">ADMIN</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button onClick={() => curUser.isAdmin || u.id === curUser.id ? startEdit(u) : alert("Access Denied")} className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/5 rounded-full text-white/50 hover:text-white transition-all opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0">
+                                    <Edit3 size={16} />
+                                </button>
+                            </div>
+                        )}
                     </div>
-                    <div className="flex gap-4"><button onClick={() => setTempPattern([])} className="text-xs text-red-400">RESET</button><button onClick={savePattern} className="px-6 py-2 bg-green-600 rounded text-sm font-bold tracking-widest">SAVE</button><button onClick={() => setMode('list')} className="px-6 py-2 bg-white/10 rounded text-sm">CANCEL</button></div>
-                    <div className="text-[10px] opacity-40">Use Arrow Keys + Enter</div>
-                </div>
-            )}
+                ))}
+            </div>
         </div>
     );
 };
 
-const PlaceholderApp = ({ title, close }) => (
-    <div className="flex items-center justify-center h-full text-white/50 font-mono text-xs tracking-widest p-8">{title} Component Initialized. Functionality must be implemented via Electron I/O.</div>
-);
+/* --- FUNCTIONAL APPS (REPLACING PLACEHOLDERS) --- */
+
+const CalculatorApp = ({ close }) => {
+    const [display, setDisplay] = useState('0');
+    const [prev, setPrev] = useState(null);
+    const [op, setOp] = useState(null);
+    const [newNum, setNewNum] = useState(true);
+
+    const handleNum = (num) => {
+        if (newNum) {
+            setDisplay(num.toString());
+            setNewNum(false);
+        } else {
+            setDisplay(display === '0' ? num.toString() : display + num);
+        }
+    };
+
+    const handleOp = (operation) => {
+        setOp(operation);
+        setPrev(parseFloat(display));
+        setNewNum(true);
+    };
+
+    const calculate = () => {
+        if (prev === null || op === null) return;
+        const current = parseFloat(display);
+        let result = 0;
+        switch(op) {
+            case '+': result = prev + current; break;
+            case '-': result = prev - current; break;
+            case '×': result = prev * current; break;
+            case '÷': result = prev / current; break;
+        }
+        setDisplay(result.toString());
+        setPrev(null);
+        setOp(null);
+        setNewNum(true);
+    };
+
+    const clear = () => {
+        setDisplay('0');
+        setPrev(null);
+        setOp(null);
+        setNewNum(true);
+    };
+
+    const btnClass = "h-12 rounded-lg font-bold text-lg transition-all active:scale-95 flex items-center justify-center select-none";
+    const numClass = `${btnClass} bg-white/10 hover:bg-white/20 text-white`;
+    const opClass = `${btnClass} bg-blue-600 hover:bg-blue-500 text-white`;
+    const actionClass = `${btnClass} bg-gray-500/50 hover:bg-gray-400/50 text-black`;
+
+    return (
+        <div className="flex flex-col h-full bg-[#111] p-4 text-white">
+            <div className="flex-1 flex items-end justify-end text-5xl font-light font-mono mb-6 px-2 break-all">
+                {display}
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+                <button onClick={clear} className={`${actionClass} col-span-3 text-white`}>AC</button>
+                <button onClick={() => handleOp('÷')} className={opClass}>÷</button>
+                <button onClick={() => handleNum(7)} className={numClass}>7</button>
+                <button onClick={() => handleNum(8)} className={numClass}>8</button>
+                <button onClick={() => handleNum(9)} className={numClass}>9</button>
+                <button onClick={() => handleOp('×')} className={opClass}>×</button>
+                <button onClick={() => handleNum(4)} className={numClass}>4</button>
+                <button onClick={() => handleNum(5)} className={numClass}>5</button>
+                <button onClick={() => handleNum(6)} className={numClass}>6</button>
+                <button onClick={() => handleOp('-')} className={opClass}>-</button>
+                <button onClick={() => handleNum(1)} className={numClass}>1</button>
+                <button onClick={() => handleNum(2)} className={numClass}>2</button>
+                <button onClick={() => handleNum(3)} className={numClass}>3</button>
+                <button onClick={() => handleOp('+')} className={opClass}>+</button>
+                <button onClick={() => handleNum(0)} className={`${numClass} col-span-2`}>0</button>
+                <button onClick={() => setDisplay(display + '.')} className={numClass}>.</button>
+                <button onClick={calculate} className={`${opClass} bg-green-600 hover:bg-green-500`}>=</button>
+            </div>
+        </div>
+    );
+};
+
+const PaintApp = ({ close }) => {
+    const canvasRef = useRef(null);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [color, setColor] = useState('#ffffff');
+    const [brushSize, setBrushSize] = useState(3);
+    const [ctx, setCtx] = useState(null);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        canvas.width = canvas.parentElement.offsetWidth;
+        canvas.height = canvas.parentElement.offsetHeight;
+        const context = canvas.getContext('2d');
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.fillStyle = '#000000';
+        context.fillRect(0,0, canvas.width, canvas.height);
+        setCtx(context);
+    }, []);
+
+    const startDraw = ({ nativeEvent }) => {
+        const { offsetX, offsetY } = nativeEvent;
+        if(ctx) {
+            ctx.beginPath();
+            ctx.moveTo(offsetX, offsetY);
+            setIsDrawing(true);
+        }
+    };
+
+    const draw = ({ nativeEvent }) => {
+        if (!isDrawing || !ctx) return;
+        const { offsetX, offsetY } = nativeEvent;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = brushSize;
+        ctx.lineTo(offsetX, offsetY);
+        ctx.stroke();
+    };
+
+    const stopDraw = () => {
+        if(ctx) ctx.closePath();
+        setIsDrawing(false);
+    };
+
+    const clearCanvas = () => {
+        if(ctx) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-[#222]">
+            <div className="flex items-center gap-4 p-2 bg-[#333] border-b border-white/10">
+                <input 
+                    type="color" 
+                    value={color} 
+                    onChange={(e) => setColor(e.target.value)} 
+                    className="w-8 h-8 rounded cursor-pointer border-none"
+                />
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-white/60">Size</span>
+                    <input 
+                        type="range" min="1" max="50" 
+                        value={brushSize} 
+                        onChange={(e) => setBrushSize(e.target.value)}
+                        className="w-24 accent-blue-500"
+                    />
+                </div>
+                <button onClick={clearCanvas} className="px-3 py-1 bg-white/10 text-white text-xs rounded hover:bg-white/20">Clear</button>
+                <div className="flex-1"></div>
+                <button onClick={() => {
+                    const link = document.createElement('a');
+                    link.download = `drawing_${Date.now()}.png`;
+                    link.href = canvasRef.current.toDataURL();
+                    link.click();
+                }} className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-500">Save</button>
+            </div>
+            <div className="flex-1 relative cursor-crosshair overflow-hidden">
+                <canvas 
+                    ref={canvasRef}
+                    onMouseDown={startDraw}
+                    onMouseMove={draw}
+                    onMouseUp={stopDraw}
+                    onMouseLeave={stopDraw}
+                />
+            </div>
+        </div>
+    );
+};
 
 const TextEditorApp = ({ close }) => {
     const [content, setContent] = useState(localStorage.getItem('aether_editor_content') || 'Welcome to Aether Text Editor.');
@@ -939,36 +1342,94 @@ const TextEditorApp = ({ close }) => {
     );
 };
 
-const WindowedApp = ({ title, onClose, children }) => {
+/* --- 5. LEGACY XMB COMPONENTS (FOR ORIGINAL XMB MODE) --- */
+const WindowedApp = ({ title, onClose, children, width = 'w-[85%]', height = 'h-[80%]' }) => {
+  const { position, dragRef, handleMouseDown, isDragging } = useDraggable({ x: window.innerWidth/2 - 400, y: window.innerHeight/2 - 300 });
+
   useEffect(() => {
     const handleGlobalClose = (e) => {
-        if (e.key === 'Escape' || e.key === 'Backspace') { e.stopPropagation(); onClose(); }
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+        if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
     };
     window.addEventListener('keydown', handleGlobalClose);
     return () => window.removeEventListener('keydown', handleGlobalClose);
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200">
-      <div className="bg-[#0b0e14]/90 w-[85%] h-[80%] shadow-[0_0_100px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden text-white relative ring-1 ring-white/10 rounded-lg">
-        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-70"></div>
-        <div className="h-10 bg-[#161b22] flex items-center justify-between px-4 border-b border-white/5 select-none shrink-0">
-          <div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]"></div><span className="text-white font-bold tracking-[0.2em] text-[10px] uppercase font-mono">{title}</span></div>
-          <div className="flex items-center gap-2"><span className="text-[9px] uppercase opacity-30 mr-2 tracking-widest hidden md:block">Press ESC to Close</span><button onClick={onClose} className="opacity-50 hover:opacity-100 hover:text-red-400 transition-all bg-white/5 hover:bg-white/10 p-1.5 rounded"><X size={14} /></button></div>
+    <div className="fixed inset-0 z-40 pointer-events-none"> 
+      <div 
+        className={`pointer-events-auto absolute flex flex-col overflow-hidden text-white bg-[#0b0e14]/95 backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.5)] ring-1 ring-white/10 rounded-lg animate-in zoom-in-95 duration-200 ${width} ${height} ${isDragging ? 'cursor-grabbing opacity-90 scale-[1.01]' : ''}`}
+        style={{ left: position.x, top: position.y, width: '900px', height: '600px', maxWidth: '95vw', maxHeight: '90vh' }}
+      >
+        <div 
+            ref={dragRef}
+            onMouseDown={handleMouseDown}
+            className="h-9 bg-[#161b22] flex items-center justify-between px-4 border-b border-white/5 select-none shrink-0 cursor-grab active:cursor-grabbing group"
+        >
+          <div className="flex items-center gap-3">
+              <div className="flex gap-2">
+                 <button onClick={onClose} className="w-3 h-3 rounded-full bg-red-500/80 hover:bg-red-500 shadow-inner" />
+                 <button onClick={() => window.aetherSystem?.minimize()} className="w-3 h-3 rounded-full bg-yellow-500/80 hover:bg-yellow-500 shadow-inner" />
+                 <button className="w-3 h-3 rounded-full bg-green-500/80 hover:bg-green-500 shadow-inner" />
+              </div>
+              <div className="w-[1px] h-4 bg-white/10 mx-2"></div>
+              <span className="text-white/80 font-bold tracking-wider text-[11px] uppercase font-mono group-hover:text-white transition-colors">{title}</span>
+          </div>
         </div>
-        <div className="flex-1 overflow-hidden bg-[#050505]/80 relative backdrop-blur-xl">
-          <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '40px 40px'}}></div>
-          <div className="relative z-10 h-full">{children}</div>
+        <div className="flex-1 overflow-hidden relative bg-[#050505]/50">
+           {children}
         </div>
       </div>
     </div>
   );
 };
 
+const ContextMenu = ({ x, y, onClose, options }) => {
+    useEffect(() => {
+        const handleClick = () => onClose();
+        window.addEventListener('click', handleClick);
+        return () => window.removeEventListener('click', handleClick);
+    }, [onClose]);
+
+    return (
+        <div 
+            className="fixed z-[9999] w-48 bg-[#1a1a1a]/90 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-75 flex flex-col"
+            style={{ top: y, left: x }}
+        >
+            {options.map((opt, i) => (
+                <button 
+                    key={i} 
+                    onClick={(e) => { e.stopPropagation(); opt.action(); onClose(); }}
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-blue-600 text-left group transition-colors"
+                >
+                    <opt.icon size={14} className="text-white/50 group-hover:text-white" />
+                    <span className="text-xs text-white/80 group-hover:text-white font-medium">{opt.label}</span>
+                </button>
+            ))}
+        </div>
+    );
+};
+
+const NotificationSystem = ({ notifications }) => {
+    return (
+        <div className="fixed bottom-24 right-6 z-[9999] flex flex-col gap-3 pointer-events-none">
+            {notifications.map(n => (
+                <div key={n.id} className="pointer-events-auto bg-[#1a1a1a]/90 backdrop-blur-md border-l-4 border-blue-500 text-white p-4 rounded shadow-2xl min-w-[300px] animate-in slide-in-from-right fade-in duration-300 flex items-start gap-3">
+                    <div className="mt-1"><Info size={16} className="text-blue-400"/></div>
+                    <div>
+                        <div className="text-xs font-bold uppercase tracking-widest text-blue-200 mb-1">{n.title}</div>
+                        <div className="text-sm opacity-80">{n.message}</div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 const LockScreen = ({ users, currentUser, onUnlock, onSwitchUser, playSuccess, playFail, updateLockPattern }) => {
     const isSetupMode = !currentUser.pattern || currentUser.pattern === '';
     const isNoLock = currentUser.pattern === 'none';
-    const [status, setStatus] = useState(isSetupMode ? 'CREATE PASSCODE' : (isNoLock ? 'PRESS ENTER' : 'ENTER PASSCODE'));
+    const [status, setStatus] = useState(isSetupMode ? 'CREATE PASSCODE (ARROWS)' : (isNoLock ? 'PRESS ENTER' : 'ENTER PASSCODE'));
     const [inputMode, setInputMode] = useState(isSetupMode); 
     const [patternInput, setPatternInput] = useState([]);
     const [errorCount, setErrorCount] = useState(0);
@@ -1024,7 +1485,7 @@ const LockScreen = ({ users, currentUser, onUnlock, onSwitchUser, playSuccess, p
                     {isSetupMode && patternInput.length === 0 && <span className="text-white/30 text-xs">USE ARROW KEYS</span>}
                  </div>
              )}
-             {isSetupMode && <div className="mt-8 flex flex-col items-center gap-2 text-[10px] text-white/50 tracking-widest"><div>[ ARROWS ] to Create Pattern</div><div>[ SPACE ] to Save Password</div><div>[ N ] for No Password</div></div>}
+             {isSetupMode && <div className="mt-8 flex flex-col items-center gap-2 text-[10px] text-white/50 tracking-widest"><div>[ ARROWS ] to Create Pattern</div><div>[ SPACE ] to Save</div><div>[ N ] for No Passcode</div></div>}
              {isNoLock && <div className="mt-8 text-[10px] text-white/30 tracking-widest">[ PRESS ENTER TO UNLOCK ]</div>}
              {!isSetupMode && !isNoLock && (<div className="absolute bottom-10 flex flex-col items-center gap-2 opacity-50"><span className="text-[10px] uppercase tracking-widest">Authorized Access Only</span><span className="text-[10px] text-red-400 cursor-pointer hover:underline" onClick={onSwitchUser}>[ Switch User ]</span></div>)}
         </div>
@@ -1043,13 +1504,12 @@ const DockItem = ({ icon: Icon, label, onClick, isActive, className = '' }) => (
 
 const MacDock = ({ time, activeApp, closeApp, currentUser, visible, onLaunch, appRefMap }) => {
   return (
-      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 h-20 px-6 bg-black/30 backdrop-blur-2xl border border-white/10 rounded-[2rem] flex items-center gap-3 shadow-[0_20px_40px_rgba(0,0,0,0.6)] z-50 transition-all duration-500 cubic-bezier(0.175, 0.885, 0.32, 1.275) ${visible ? 'translate-y-0 opacity-100' : 'translate-y-32 opacity-0'}`}>
+      <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 h-20 px-6 bg-black/30 backdrop-blur-2xl border border-white/10 rounded-[2rem] flex items-center gap-3 shadow-[0_20px_40px_rgba(0,0,0,0.6)] z-[99999] transition-all duration-500 cubic-bezier(0.175, 0.885, 0.32, 1.275) ${visible ? 'translate-y-0 opacity-100' : 'translate-y-32 opacity-0'}`}>
           <DockItem icon={Home} label="Home" onClick={closeApp} />
           <DockItem icon={Globe} label="Browser" onClick={() => onLaunch('network')} isActive={activeApp === appRefMap.NETWORK} />
           <DockItem icon={Folder} label="Files" onClick={() => onLaunch('files')} isActive={activeApp === appRefMap.FILES} />
           <DockItem icon={Terminal} label="Settings" onClick={() => onLaunch('settings')} isActive={activeApp === appRefMap.SETTINGS} />
           
-          {/* Dynamic Container for Running Apps that aren't pinned */}
           {activeApp && !['network', 'files', 'settings'].includes(Object.keys(appRefMap).find(key => appRefMap[key] === activeApp)?.toLowerCase()) && (
               <>
                 <div className="w-[1px] h-8 bg-white/10 mx-1" />
@@ -1063,45 +1523,156 @@ const MacDock = ({ time, activeApp, closeApp, currentUser, visible, onLaunch, ap
           <DockItem icon={Power} label="Shutdown" onClick={() => window.aetherSystem?.shutdown()} className="hover:text-red-400" />
           <div className="w-[1px] h-8 bg-white/10 mx-2" />
           <div className="flex flex-col items-center gap-1 opacity-70 hover:opacity-100 transition-opacity cursor-default px-2">
-               <div className="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center font-bold text-xs" style={{backgroundColor: currentUser.color}}>{currentUser.name.charAt(0)}</div>
+               <div className="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center font-bold text-xs overflow-hidden" style={{backgroundColor: currentUser.color}}>
+                   {currentUser.pfp ? <img src={currentUser.pfp} className="w-full h-full object-cover" /> : currentUser.name.charAt(0)}
+               </div>
                <span className="text-[9px] font-mono tracking-tighter text-white/50">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
       </div>
   );
 };
 
-// -- KERNEL LOGIC COMPONENT (Internal) --
-// Separating logic to allow ErrorBoundary to catch init errors
+/* --- 6. DESKTOP COMPONENTS (NEW) --- */
+
+const WindowFrame = ({ win }) => {
+    const { closeWindow, minimizeWindow, maximizeWindow, focusWindow } = useContext(WindowContext);
+
+    return (
+        <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ 
+                scale: win.isMinimized ? 0.5 : 1, 
+                opacity: win.isMinimized ? 0 : 1, 
+                width: win.isMaximized ? '100vw' : win.width,
+                height: win.isMaximized ? 'calc(100vh - 48px)' : win.height,
+                x: win.isMaximized ? 0 : win.x,
+                y: win.isMinimized ? 500 : (win.isMaximized ? 0 : win.y),
+                zIndex: win.zIndex,
+                borderColor: "rgba(255,255,255,0.1)"
+            }}
+            whileTap={{ scale: win.isMaximized ? 1 : 0.995 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            className={cn(
+                "absolute flex flex-col bg-[#0f1115]/90 backdrop-blur-2xl border shadow-2xl rounded-lg overflow-hidden active:border-white/20 transition-colors",
+                win.isMaximized ? "rounded-none top-0 left-0" : ""
+            )}
+            onMouseDown={() => focusWindow(win.id)}
+            drag={!win.isMaximized}
+            dragMomentum={false}
+            dragElastic={0.1}
+        >
+            <div 
+                className="h-10 bg-white/5 border-b border-white/5 flex items-center justify-between px-3 select-none cursor-default"
+                onDoubleClick={() => maximizeWindow(win.id)}
+            >
+                <div className="flex items-center gap-3">
+                    <win.icon size={14} className="text-blue-400" />
+                    <span className="text-xs font-bold tracking-wider text-white/80">{win.title}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id); }} className="p-1.5 hover:bg-white/10 rounded-full transition-colors"><Minus size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); maximizeWindow(win.id); }} className="p-1.5 hover:bg-white/10 rounded-full transition-colors"><Maximize size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); closeWindow(win.id); }} className="p-1.5 hover:bg-red-500/50 hover:text-white rounded-full transition-colors text-white/50"><X size={12} /></button>
+                </div>
+            </div>
+
+            <div className="flex-1 overflow-hidden relative">
+                {win.component}
+            </div>
+            
+            {!win.isMaximized && <div className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize opacity-50 hover:opacity-100" />}
+        </motion.div>
+    );
+};
+
+// Original Taskbar removed as requested
+
+const DesktopIcons = () => {
+    const { openWindow } = useContext(WindowContext);
+    
+    const handleTrash = () => {
+        if (window.aetherSystem?.openExternal) {
+            window.aetherSystem.openExternal('shell:RecycleBinFolder');
+        }
+    };
+
+    const shortcuts = [
+        { id: 'pc', label: 'My PC', icon: MonitorUp, action: () => openWindow('files', 'My PC', <FileManagerApp />, Folder, true) },
+        { id: 'web', label: 'Browser', icon: Globe, action: () => openWindow('web', 'Aether Web', <NetworkApp />, Globe, true) },
+        { id: 'settings', label: 'Settings', icon: Settings, action: () => openWindow('settings', 'System Configuration', <SettingsApp />, Settings) },
+        { id: 'ollama', label: 'Aether AI', icon: MessageSquare, action: () => openWindow('ollama', 'Aether Intelligence', <OllamaApp />, MessageSquare, true) },
+        { id: 'apps', label: 'Applications', icon: Package, action: () => openWindow('apps', 'Installed Apps', <InstalledApps />, Package) },
+        { id: 'notepad', label: 'Text Editor', icon: FileText, action: () => openWindow('notepad', 'Text Editor', <TextEditorApp />, FileText, true) },
+        { id: 'calc', label: 'Calculator', icon: Calculator, action: () => openWindow('calc', 'Calculator', <CalculatorApp />, Calculator) },
+        { id: 'paint', label: 'Paint', icon: Brush, action: () => openWindow('paint', 'Canvas Paint', <PaintApp />, Brush) },
+        { id: 'trash', label: 'Recycle Bin', icon: Trash2, action: handleTrash },
+    ];
+
+    return (
+        <div className="absolute top-0 left-0 bottom-12 w-full p-6 grid grid-cols-[repeat(auto-fill,minmax(80px,1fr))] grid-rows-[repeat(auto-fill,minmax(80px,1fr))] gap-2 content-start justify-items-center pointer-events-none">
+            {shortcuts.map(item => (
+                <button 
+                    key={item.id}
+                    onClick={item.action}
+                    className="w-20 h-24 flex flex-col items-center justify-center gap-2 rounded-lg hover:bg-white/10 hover:backdrop-blur-sm border border-transparent hover:border-white/10 transition-all group pointer-events-auto"
+                >
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                        <item.icon size={24} className="text-blue-200 drop-shadow-md" />
+                    </div>
+                    <span className="text-[10px] text-white font-medium drop-shadow-md text-center leading-tight bg-black/40 px-1.5 py-0.5 rounded-full">{item.label}</span>
+                </button>
+            ))}
+        </div>
+    );
+};
+
+const DesktopEnvironment = () => {
+    const { windows } = useContext(WindowContext);
+    
+    return (
+        <div className="absolute inset-0 z-10 overflow-hidden">
+            <DesktopIcons />
+            <div className="absolute inset-0 pointer-events-none">
+                <AnimatePresence>
+                    {windows.map(win => (
+                        <div key={win.id} className="pointer-events-auto">
+                            <WindowFrame win={win} />
+                        </div>
+                    ))}
+                </AnimatePresence>
+            </div>
+            {/* Taskbar removed, replaced by global MacDock */}
+        </div>
+    );
+};
+
+/* --- 7. SYSTEM KERNEL (ORIGINAL XMB LOGIC RESTORED) --- */
 const SystemKernel = () => {
   const [colIndex, setColIndex] = useState(2);
   const [rowIndex, setRowIndex] = useState(null);
-  const [time, setTime] = useState(new Date());
-  const [activeApp, setActiveApp] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [showTaskbar, setShowTaskbar] = useState(false); 
   const [brightness, setBrightness] = useState(1);
   const [wifiState, setWifiState] = useState(true);
+  const [isBackendConnected, setIsBackendConnected] = useState(true);
 
-  // CRITICAL FIX: Safe User Loading & Validation
-  const [users, setUsers] = useState(() => {
-    try { 
-        const storedUsers = JSON.parse(localStorage.getItem('aether_users')); 
-        if (Array.isArray(storedUsers) && storedUsers.length > 0) {
-            const valid = storedUsers.every(u => u && u.id && u.name);
-            if(valid) return storedUsers;
-        } 
-    } catch {}
-    // Default fallback if corrupt
-    return [{ id: 'u1', name: 'User 1', pattern: 'up,up,down,down', color: '#3b82f6' }, { id: 'u2', name: 'Admin', pattern: 'left,right,left,right,up,down,enter', color: '#ef4444' }];
-  });
+  const [contextMenu, setContextMenu] = useState(null); 
+  const [notifications, setNotifications] = useState([]);
+  const [runningGameId, setRunningGameId] = useState(null); 
   
-  const [currentUser, setCurrentUser] = useState(null);
+  const pushNotification = useCallback((title, message) => {
+      const id = Date.now();
+      setNotifications(prev => [...prev, { id, title, message }]);
+      setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
+      window.aetherSystem?.sendNotification(title, message);
+  }, []);
+
+  const { users, currentUser, setCurrentUser, updateUsers, xmbActiveApp, setXmbActiveApp, setViewMode, autoDesktop, settings, updateSetting } = useContext(WindowContext);
+  
   const [loginSelection, setLoginSelection] = useState(0);
   const [gameList, setGameList] = useState([]);
   const [globalTransitionState, setGlobalTransitionState] = useState('booting');
   const [isLocked, setIsLocked] = useState(false); 
-  
-  const updateUsers = (newUsers) => { setUsers(newUsers); localStorage.setItem('aether_users', JSON.stringify(newUsers)); };
   
   const updateLockPattern = (userId, newPattern) => {
       const updatedUsers = users.map(u => u.id === userId ? { ...u, pattern: newPattern } : u);
@@ -1109,74 +1680,109 @@ const SystemKernel = () => {
       if (currentUser && currentUser.id === userId) setCurrentUser({ ...currentUser, pattern: newPattern });
   }
 
-  const [settings, setSettings] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('aether_settings')) || { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
-    catch { return { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
-  });
-
-  const updateSetting = (key, value) => {
-    setSettings(p => { const newSettings = {...p, [key]: value}; localStorage.setItem('aether_settings', JSON.stringify(newSettings)); return newSettings; });
-  };
-
   const containerRef = useRef(null);
   const { playNav, playSelect, playBack, playLogin, playSuccess, playFail, setVolume, volume } = useSound();
-  const stateRef = useRef({ colIndex, rowIndex, activeApp, isFocused, currentUser, isLocked });
+  const stateRef = useRef({ colIndex, rowIndex, xmbActiveApp, isFocused, currentUser, isLocked });
   const scrollTimeoutRef = useRef(null); 
 
-  const closeApp = useCallback(() => { playBack(); setActiveApp(null); }, [playBack]);
+  const closeApp = useCallback(() => { playBack(); setXmbActiveApp(null); }, [playBack, setXmbActiveApp]);
+
+  useIdleTimer(300000, () => { 
+      if (currentUser && !isLocked) {
+          setIsLocked(true);
+          pushNotification('Security', 'Session timed out due to inactivity.');
+      }
+  });
 
   useEffect(() => {
-    const handleToggle = (e) => { if (e.key.toLowerCase() === 'h') { setShowTaskbar(prev => !prev); } };
-    window.addEventListener('keydown', handleToggle);
-    return () => window.removeEventListener('keydown', handleToggle);
-  }, []);
+      const handleContextMenu = (e) => {
+          e.preventDefault();
+          if (!currentUser || isLocked) return;
+          const defaultOptions = [
+              { label: 'Refresh System', icon: RefreshCw, action: () => window.location.reload() },
+              { label: 'System Settings', icon: Settings, action: () => setXmbActiveApp(APP_REFS.SETTINGS) },
+              { label: 'Lock Terminal', icon: Lock, action: () => setIsLocked(true) },
+              { label: 'Change Wallpaper', icon: ImageIcon, action: () => updateSetting('dynamicWave', !settings.dynamicWave) },
+          ];
+          setContextMenu({ x: e.clientX, y: e.clientY, options: defaultOptions });
+          playSelect();
+      };
+      window.addEventListener('contextmenu', handleContextMenu);
+      return () => window.removeEventListener('contextmenu', handleContextMenu);
+  }, [currentUser, isLocked, settings, playSelect, setXmbActiveApp]);
 
   useEffect(() => {
-    let animationFrameId; let lastButtonState = { toggle: false };
-    const checkGamepad = () => {
-        const gamepads = navigator.getGamepads();
-        if (gamepads[0]) { 
-            const gp = gamepads[0];
-            const togglePressed = gp.buttons[8]?.pressed || gp.buttons[16]?.pressed; 
-            if (togglePressed && !lastButtonState.toggle) { setShowTaskbar(prev => !prev); }
-            lastButtonState = { toggle: togglePressed };
-        }
-        animationFrameId = requestAnimationFrame(checkGamepad);
-    };
-    checkGamepad();
-    return () => cancelAnimationFrame(animationFrameId);
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
     const bootTimer = setTimeout(() => { setGlobalTransitionState('login'); }, 1500);
+
     const loadGames = async () => {
         let foundGames = [];
-        if(window.aetherSystem?.scanSteamGames) {
-            const s = await window.aetherSystem.scanSteamGames();
-            foundGames = s.map(g => ({ id: g.id, label: g.name, source: 'Steam', accent: '#3b82f6', icon: Disc, hero: `https://steamcdn-a.akamaihd.net/steam/apps/${g.id}/library_hero.jpg`, logo: `https://steamcdn-a.akamaihd.net/steam/apps/${g.id}/logo.png` }));
+        if(window.aetherSystem?.scanGames) {
+            setIsBackendConnected(true);
+            const s = await window.aetherSystem.scanGames();
+            foundGames = s.map(g => {
+                const heroUrl = g.source === 'Steam' 
+                    ? `https://steamcdn-a.akamaihd.net/steam/apps/${g.realId}/library_hero.jpg` 
+                    : `https://cdn2.unrealengine.com/Diesel%2Fproductv2%2F${g.name.replace(/\s+/g,'')}%2Fhome%2F${g.name.replace(/\s+/g,'')}-hero.jpg`;
+                return { 
+                    id: g.id, 
+                    realId: g.realId,
+                    label: g.name, 
+                    source: g.source, 
+                    accent: g.source === 'Steam' ? '#1b2838' : '#333333', 
+                    icon: g.source === 'Steam' ? Disc : Gamepad2, 
+                    hero: heroUrl, 
+                    logo: '', 
+                    path: g.path,
+                    timePlayed: Math.round(g.timePlayed),
+                    lastPlayed: g.lastPlayed
+                };
+            });
         } else {
-            foundGames = [ { id: '1091500', label: 'Cyberpunk 2077', source: 'Steam', accent: '#fcee0a', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/1091500/library_hero.jpg', logo: 'https://steamcdn-a.akamaihd.net/steam/apps/1091500/logo.png', icon: Disc }, { id: '1245620', label: 'Elden Ring', source: 'Steam', accent: '#cca362', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/1245620/library_hero.jpg', logo: 'https://steamcdn-a.akamaihd.net/steam/apps/1245620/logo.png', icon: Disc }];
+             setIsBackendConnected(false);
+             foundGames = [ 
+                 { id: '1091500', label: 'Cyberpunk 2077', source: 'Steam', accent: '#fcee0a', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/1091500/library_hero.jpg', logo: 'https://steamcdn-a.akamaihd.net/steam/apps/1091500/logo.png', icon: Disc, timePlayed: 124, lastPlayed: 1 }, 
+                 { id: '1245620', label: 'Elden Ring', source: 'Steam', accent: '#cca362', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/1245620/library_hero.jpg', logo: 'https://steamcdn-a.akamaihd.net/steam/apps/1245620/logo.png', icon: Disc, timePlayed: 450, lastPlayed: 2 },
+                 { id: '271590', label: 'GTA V', source: 'Epic', accent: '#56B949', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/271590/library_hero.jpg', logo: '', icon: Gamepad2, timePlayed: 820, lastPlayed: 0 },
+                 { id: '1172470', label: 'Apex Legends', source: 'Steam', accent: '#C2352E', hero: 'https://steamcdn-a.akamaihd.net/steam/apps/1172470/library_hero.jpg', logo: '', icon: Disc, timePlayed: 60, lastPlayed: 3 }
+             ];
         }
+        foundGames.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
         setGameList(foundGames);
     };
+    
     loadGames();
-    return () => { clearInterval(timer); clearTimeout(bootTimer); };
+
+    if (window.aetherSystem?.onGameActivity) {
+        window.aetherSystem.onGameActivity((data) => {
+            setRunningGameId(data.id);
+            setGameList(prev => prev.map(g => {
+                if (g.id === data.id) return { ...g, timePlayed: data.timePlayed };
+                return g;
+            }));
+        });
+    }
+
+    return () => { clearTimeout(bootTimer); };
   }, []);
 
   useEffect(() => {
-      stateRef.current = { colIndex, rowIndex, activeApp, isFocused, currentUser, isLocked };
+      stateRef.current = { colIndex, rowIndex, xmbActiveApp, isFocused, currentUser, isLocked };
       if (currentUser && globalTransitionState === 'login') { setGlobalTransitionState('booting'); setTimeout(() => { setGlobalTransitionState('ready'); setIsFocused(true); }, 800); }
-  }, [colIndex, rowIndex, activeApp, isFocused, currentUser, globalTransitionState, isLocked]);
+  }, [colIndex, rowIndex, xmbActiveApp, isFocused, currentUser, globalTransitionState, isLocked]);
 
   const handleUserSwitch = () => { setGlobalTransitionState('booting'); playBack(); setIsLocked(false); setTimeout(() => { setCurrentUser(null); setLoginSelection(0); setGlobalTransitionState('login'); }, 500); };
   const handleLockSystem = () => { setIsLocked(true); setIsFocused(false); playBack(); }
   const handleUnlockSystem = () => { setIsLocked(false); setIsFocused(true); }
 
-  const APP_REFS = { FILES: 'files', MONITOR: 'monitor', SETTINGS: 'settings', APPS: 'apps', NETWORK: 'network', NOTEPAD: 'notepad', PAINT: 'paint', CALC: 'calc', USER_MANAGE: 'user_manage', ABOUT: 'about' };
+  const APP_REFS = { FILES: 'files', MONITOR: 'monitor', SETTINGS: 'settings', APPS: 'apps', NETWORK: 'network', NOTEPAD: 'notepad', PAINT: 'paint', CALC: 'calc', USER_MANAGE: 'user_manage', ABOUT: 'about', OLLAMA: 'ollama' };
   const getCurrentWaveHue = () => {
       const categoryHueMap = { 'user': 240, 'settings': 60, 'game': 210, 'apps': 280, 'network': 180 };
       return categoryHueMap[SYSTEM_DATA[colIndex]?.id] || getHueFromHex(settings.bgColor);
+  };
+
+  const launchProductiveApp = (appKey) => {
+      setXmbActiveApp(appKey);
+      if (autoDesktop) setViewMode('desktop');
   };
 
   const SYSTEM_DATA = [
@@ -1184,6 +1790,7 @@ const SystemKernel = () => {
       id: 'user', icon: Users, label: 'USERS', hue: 240,
       items: [
         { id: 'u1', label: 'Switch User', icon: RefreshCw, type: 'action', action: handleUserSwitch },
+        { id: 'u_desktop', label: 'Switch to Desktop', icon: MonitorUp, type: 'action', action: () => setViewMode('desktop'), subtext: 'PC Mode' },
         { id: 'u4', label: 'Manage Users', icon: User, type: 'app', app: APP_REFS.USER_MANAGE, subtext: 'Configure' }, 
         { id: 'u2', label: 'Standby', icon: Lock, type: 'action', action: handleLockSystem, subtext: 'Lock System' },
         { id: 'u5', label: 'Minimize', icon: Minus, type: 'action', action: () => window.aetherSystem?.minimize() },
@@ -1199,10 +1806,14 @@ const SystemKernel = () => {
         { id: 's3', label: 'File Manager', icon: Folder, type: 'app', app: APP_REFS.FILES, subtext: 'Storage' }
       ]
     },
-    { id: 'game', icon: Gamepad2, label: 'GAMES', hue: 210, items: gameList.length > 0 ? gameList : [{ id: 'load', label: 'Scanning...', icon: Disc }] },
+    { 
+      id: 'game', icon: Gamepad2, label: 'LIBRARY', hue: 210, 
+      items: gameList.length > 0 ? gameList : [{ id: 'scan', label: 'Scanning Drives...', icon: RefreshCw }] 
+    },
     {
         id: 'apps', icon: Package, label: 'TOOLS', hue: 280,
         items: [
+            { id: 't6', label: 'Aether AI', icon: Sparkles, type: 'app', app: APP_REFS.OLLAMA, subtext: 'Ollama' },
             { id: 't2', label: 'System Status', icon: Cpu, type: 'app', app: APP_REFS.MONITOR, subtext: 'Telemetry' },
             { id: 't5', label: 'Text Editor', icon: FileText, type: 'app', app: APP_REFS.NOTEPAD },
             { id: 't3', label: 'Canvas Paint', icon: Brush, type: 'app', app: APP_REFS.PAINT },
@@ -1212,30 +1823,27 @@ const SystemKernel = () => {
     {
         id: 'network', icon: Globe, label: 'NETWORK', hue: 180,
         items: [
-            { id: 'n1', label: 'Resources', icon: Globe, type: 'app', app: APP_REFS.NETWORK, subtext: 'Web' },
+            { id: 'n1', label: 'Web Browser', icon: Globe, type: 'app', app: APP_REFS.NETWORK, subtext: 'Secure' },
             { id: 'n2', label: 'Open URL', icon: Link, type: 'action', action: () => { const url = prompt("Enter URL:"); if (url) window.aetherSystem?.openExternal(url); }, subtext: 'Browser' },
         ]
     }
   ];
 
-  const handleDockLaunch = (type) => {
-      playSelect();
-      if (type === 'network') setActiveApp(APP_REFS.NETWORK);
-      if (type === 'files') setActiveApp(APP_REFS.FILES);
-      if (type === 'settings') setActiveApp(APP_REFS.SETTINGS);
-      if (type === 'about') setActiveApp(APP_REFS.ABOUT);
-  };
-
   const handleNavigation = useCallback((direction) => {
-    const { colIndex, rowIndex, activeApp, currentUser, isLocked } = stateRef.current;
+    const { colIndex, rowIndex, xmbActiveApp, currentUser, isLocked } = stateRef.current;
     if (!currentUser || isLocked) {
         if (!currentUser && direction === 'left') { setLoginSelection(p => Math.max(0, p - 1)); playNav(); }
         if (!currentUser && direction === 'right') { setLoginSelection(p => Math.min(users.length - 1, p + 1)); playNav(); }
-        if (!currentUser && direction === 'enter') { playLogin(); setCurrentUser(users[loginSelection]); }
+        if (!currentUser && direction === 'enter') { 
+            playLogin(); 
+            const selectedUser = users[loginSelection];
+            setCurrentUser(selectedUser);
+            setIsLocked(true); 
+        }
         if (isLocked && direction === 'enter') handleUserSwitch();
         return;
     }
-    if (activeApp) return;
+    if (xmbActiveApp) return;
     if (direction === 'right') { setColIndex(i => Math.min(i + 1, SYSTEM_DATA.length - 1)); playNav(); if (rowIndex !== null) setRowIndex(r => Math.min(r, (SYSTEM_DATA[Math.min(colIndex + 1, SYSTEM_DATA.length - 1)]?.items.length || 1) - 1)); }
     else if (direction === 'left') { setColIndex(i => Math.max(i - 1, 0)); playNav(); if (rowIndex !== null) setRowIndex(r => Math.min(r, (SYSTEM_DATA[Math.max(colIndex - 1, 0)]?.items.length || 1) - 1)); }
     else if (direction === 'down') { if (rowIndex === null) { setRowIndex(0); playNav(); } else { setRowIndex(prev => Math.min(prev + 1, SYSTEM_DATA[colIndex].items.length - 1)); playNav(); } }
@@ -1244,16 +1852,22 @@ const SystemKernel = () => {
        if (rowIndex !== null) {
           playSelect();
           const item = SYSTEM_DATA[colIndex].items[rowIndex];
-          if (item.source === 'Steam') window.aetherSystem?.launchSteam(item.id);
+          if (window.aetherSystem?.launchGame && (item.source === 'Steam' || item.source === 'Epic')) window.aetherSystem.launchGame(item);
           else if (item.action) item.action();
-          else if (item.app) setActiveApp(item.app);
+          else if (item.app) {
+              if ([APP_REFS.FILES, APP_REFS.NETWORK, APP_REFS.NOTEPAD, APP_REFS.OLLAMA].includes(item.app)) {
+                  launchProductiveApp(item.app);
+              } else {
+                  setXmbActiveApp(item.app);
+              }
+          }
        }
     } else if (direction === 'back') { if(rowIndex !== null) { setRowIndex(null); playBack(); } else if (colIndex !== 2) { setColIndex(2); playBack(); } }
-  }, [users, loginSelection, SYSTEM_DATA, playNav, playLogin, playSelect, playBack]); 
+  }, [users, loginSelection, SYSTEM_DATA, playNav, playLogin, playSelect, playBack, autoDesktop]); 
 
   const handleKeyDown = useCallback((e) => {
     if (stateRef.current.isLocked) { if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) e.preventDefault(); return; }
-    if (stateRef.current.activeApp) { if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault(); return; }
+    if (stateRef.current.xmbActiveApp) { if(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault(); return; }
     const isNavKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Backspace', 'Escape'].includes(e.key);
     if (!stateRef.current.isFocused && !isNavKey) return;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
@@ -1266,7 +1880,7 @@ const SystemKernel = () => {
   }, [handleNavigation]);
 
   const handleScroll = useCallback((e) => {
-    if (stateRef.current.isLocked || stateRef.current.activeApp || !stateRef.current.isFocused || scrollTimeoutRef.current) return;
+    if (stateRef.current.isLocked || stateRef.current.xmbActiveApp || !stateRef.current.isFocused || scrollTimeoutRef.current) return;
     e.preventDefault(); 
     const direction = Math.abs(e.deltaY) > Math.abs(e.deltaX) && Math.abs(e.deltaY) > 5 ? (e.deltaY > 0 ? 'down' : 'up') : (Math.abs(e.deltaX) > 5 ? (e.deltaX > 0 ? 'right' : 'left') : null);
     if (direction) { handleNavigation(direction); scrollTimeoutRef.current = setTimeout(() => { scrollTimeoutRef.current = null; }, 150); }
@@ -1284,18 +1898,21 @@ const SystemKernel = () => {
   return (
     <div ref={containerRef} className="relative w-full h-screen overflow-hidden text-white font-sans select-none bg-transparent outline-none" tabIndex={0} onClick={activateSystem} onFocus={() => setIsFocused(true)} onBlur={() => setIsFocused(false)} >
       
-      {/* Brightness Overlay */}
-      <div className="absolute inset-0 z-[100] pointer-events-none bg-black transition-opacity duration-300" style={{opacity: 1 - brightness}}></div>
-
-      <WaveBackground bgColor={settings.bgColor} waveHue={getCurrentWaveHue()} dynamicWave={settings.dynamicWave} speedMultiplier={settings.speed} />
+      <NotificationSystem notifications={notifications} />
+      {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} options={contextMenu.options} onClose={() => setContextMenu(null)} />}
       
-      {currentUser && !isLocked && globalTransitionState === 'ready' && (
-         <MacDock time={time} activeApp={activeApp} closeApp={closeApp} currentUser={currentUser} visible={showTaskbar} onLaunch={handleDockLaunch} appRefMap={APP_REFS} />
+      {!isBackendConnected && globalTransitionState === 'ready' && !isLocked && (
+          <div className="fixed top-4 right-4 z-50 px-4 py-2 bg-red-600/90 backdrop-blur-md rounded-full text-[10px] font-bold uppercase tracking-widest text-white shadow-lg flex items-center gap-3 border border-white/10">
+              <AlertCircle size={12} className="animate-pulse"/> 
+              <span>Backend Offline (Web Mode)</span>
+              <div className="w-[1px] h-3 bg-white/20"></div>
+              <span className="opacity-50">Game Scanning Disabled</span>
+          </div>
       )}
       
       {isLocked && currentUser && ( <LockScreen users={users} currentUser={currentUser} onUnlock={handleUnlockSystem} onSwitchUser={handleUserSwitch} playSuccess={playSuccess} playFail={playFail} updateLockPattern={updateLockPattern} /> )}
 
-      {activeItem?.hero && isFocused && currentUser && globalTransitionState === 'ready' && !isLocked && !activeApp && (
+      {activeItem?.hero && isFocused && currentUser && globalTransitionState === 'ready' && !isLocked && !xmbActiveApp && (
          <div className="fixed inset-0 -z-0 animate-in fade-in duration-700">
              <div className="absolute inset-0 bg-cover bg-center transition-all duration-700 ease-out scale-105" style={{ backgroundImage: `url(${activeItem.hero})` }} />
              <div className="absolute inset-0 bg-black/60" />
@@ -1320,7 +1937,10 @@ const SystemKernel = () => {
              <div className="flex gap-16 items-center">
                  {users.map((u, i) => (
                      <div key={u.id} className={`flex flex-col items-center gap-6 transition-all duration-500 ease-out ${i === loginSelection ? 'scale-125 opacity-100' : 'scale-90 opacity-40 grayscale'}`}>
-                         <div className={`w-32 h-32 rounded-full border-2 flex items-center justify-center relative overflow-hidden transition-all duration-300 ${i === loginSelection ? 'border-white shadow-[0_0_50px_rgba(255,255,255,0.2)]' : 'border-white/10'}`} style={{borderColor: i===loginSelection ? u.color : 'rgba(255,255,255,0.1)'}}>{i === loginSelection && <div className="absolute inset-0 opacity-20 animate-pulse" style={{backgroundColor: u.color}}></div>}<div className="text-4xl font-bold" style={{color: u.color}}>{u.name.charAt(0)}</div></div>
+                         <div className={`w-32 h-32 rounded-full border-2 flex items-center justify-center relative overflow-hidden transition-all duration-300 ${i === loginSelection ? 'border-white shadow-[0_0_50px_rgba(255,255,255,0.2)]' : 'border-white/10'}`} style={{borderColor: i===loginSelection ? u.color : 'rgba(255,255,255,0.1)'}}>
+                             {i === loginSelection && <div className="absolute inset-0 opacity-20 animate-pulse" style={{backgroundColor: u.color}}></div>}
+                             {u.pfp ? <img src={u.pfp} className="w-full h-full object-cover" /> : <div className="text-4xl font-bold" style={{color: u.color}}>{u.name.charAt(0)}</div>}
+                         </div>
                          <div className="text-sm font-bold tracking-[0.3em] uppercase">{u.name}</div>
                      </div>
                  ))}
@@ -1336,7 +1956,7 @@ const SystemKernel = () => {
       )}
 
       {currentUser && (
-        <div className={`absolute w-full h-full transition-all duration-500 cubic-bezier(0.2, 0.0, 0.2, 1) ${isFocused && globalTransitionState === 'ready' && !isLocked && !activeApp ? 'opacity-100 blur-0' : 'opacity-0 blur-lg scale-110 pointer-events-none'}`} style={{ transform: `translateX(${LEFT_OFFSET - (colIndex * ITEM_WIDTH)}px)` }}>
+        <div className={`absolute w-full h-full transition-all duration-500 cubic-bezier(0.2, 0.0, 0.2, 1) ${isFocused && globalTransitionState === 'ready' && !isLocked && !xmbActiveApp ? 'opacity-100 blur-0' : 'opacity-0 blur-lg scale-110 pointer-events-none'}`} style={{ transform: `translateX(${LEFT_OFFSET - (colIndex * ITEM_WIDTH)}px)` }}>
             <div className="absolute top-[20%] left-0 flex items-center h-32 w-[2000px]">
             {SYSTEM_DATA.map((cat, idx) => {
                 const isActive = idx === colIndex; const catHue = SYSTEM_DATA[idx]?.hue || 210;
@@ -1346,31 +1966,167 @@ const SystemKernel = () => {
             <div className="absolute top-[20%] left-0 flex flex-col transition-all duration-500 cubic-bezier(0.16, 1, 0.3, 1)" style={{ left: `${colIndex * ITEM_WIDTH}px`, transform: `translateY(${rowIndex === null ? 160 : 160 - rowIndex * 90}px)` }}>
             {SYSTEM_DATA.map((cat, cIdx) => {
                 if (cIdx !== colIndex) return null; const catHue = SYSTEM_DATA[cIdx]?.hue || 210;
-                return ( <div key={cat.id} className="flex flex-col items-center w-[140px]"> {cat.items.map((item, rIdx) => { const isActiveItem = rowIndex === rIdx; const itemAccent = item.accent || `hsl(${catHue}, 80%, 50%)`; return ( <div key={item.id} className={`relative flex items-center gap-6 transition-all duration-300 ease-out ${isActiveItem ? 'opacity-100 translate-x-12 z-10 scale-105' : 'opacity-40 translate-x-4 scale-95 blur-[0.5px]'} my-3 whitespace-nowrap`} style={{ width: '600px', height: '70px' }}> {isActiveItem && <div className="absolute -left-6 top-0 bottom-0 w-[500px] bg-gradient-to-r from-white/10 to-transparent border-l-4 -z-10 animate-in slide-in-from-left-8 fade-in duration-300" style={{ borderColor: itemAccent }}></div>} <div className={`w-16 h-16 flex items-center justify-center rounded-lg transition-all duration-300 ${isActiveItem ? 'bg-black/40 border border-white/20 shadow-lg backdrop-blur-sm' : 'bg-transparent border border-transparent'}`}> <item.icon size={28} strokeWidth={1.5} className={`transition-all duration-300 ${isActiveItem ? 'text-white' : 'text-slate-500'}`} /> </div> <div className="flex flex-col gap-1"> <span className={`text-2xl font-light tracking-tight uppercase transition-all duration-300 ${isActiveItem ? 'text-white' : 'text-slate-400'}`}>{item.label}</span> {isActiveItem && item.subtext && <span className="text-[10px] font-bold uppercase tracking-widest drop-shadow-md opacity-80" style={{ color: itemAccent }}>{item.subtext}</span>} </div> </div> ) })} </div> );
+                return ( <div key={cat.id} className="flex flex-col items-center w-[140px]"> 
+                    {cat.items.map((item, rIdx) => { 
+                        const isActiveItem = rowIndex === rIdx; 
+                        const itemAccent = item.accent || `hsl(${catHue}, 80%, 50%)`; 
+                        const isRunning = item.id === runningGameId;
+
+                        return ( 
+                            <div key={item.id} className={`relative flex items-center gap-6 transition-all duration-300 ease-out ${isActiveItem ? 'opacity-100 translate-x-12 z-10 scale-105' : 'opacity-40 translate-x-4 scale-95 blur-[0.5px]'} my-3 whitespace-nowrap`} style={{ width: '600px', height: '80px' }}> 
+                                {isActiveItem && <div className="absolute -left-6 top-0 bottom-0 w-[550px] bg-gradient-to-r from-white/10 to-transparent border-l-4 -z-10 animate-in slide-in-from-left-8 fade-in duration-300" style={{ borderColor: isRunning ? '#4ade80' : itemAccent }}></div>} 
+                                <div className={`w-16 h-16 flex items-center justify-center rounded-lg transition-all duration-300 ${isActiveItem ? 'bg-black/40 border border-white/20 shadow-lg backdrop-blur-sm' : 'bg-transparent border border-transparent'}`}> 
+                                    {isRunning ? <Activity size={28} className="text-green-400 animate-pulse" /> : <item.icon size={28} strokeWidth={1.5} className={`transition-all duration-300 ${isActiveItem ? 'text-white' : 'text-slate-500'}`} />} 
+                                </div> 
+                                <div className="flex flex-col gap-0.5"> 
+                                    <span className={`text-2xl font-light tracking-tight uppercase transition-all duration-300 ${isActiveItem ? 'text-white' : 'text-slate-400'}`}>{item.label}</span> 
+                                    {isActiveItem && (
+                                        <div className="flex items-center gap-3">
+                                            {item.source && <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/10 text-white/60">{item.source}</span>}
+                                            {item.subtext && <span className="text-[10px] font-bold uppercase tracking-widest drop-shadow-md opacity-80" style={{ color: itemAccent }}>{item.subtext}</span>}
+                                            {item.timePlayed !== undefined && <span className="text-[10px] font-mono opacity-60 flex items-center gap-1"><Clock size={10} /> {(item.timePlayed / 60).toFixed(1)} HRS</span>}
+                                            {isRunning && <span className="text-[9px] font-bold uppercase tracking-widest text-green-400 animate-pulse">● RUNNING</span>}
+                                        </div>
+                                    )}
+                                </div> 
+                            </div> 
+                        ) 
+                    })} 
+                </div> );
             })}
             </div>
         </div>
       )}
 
-      {activeApp === APP_REFS.MONITOR && <WindowedApp title="System Status" onClose={closeApp}><SystemMonitorApp close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.FILES && <WindowedApp title="Nucleus Files" onClose={closeApp}><FileManagerApp close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.APPS && <WindowedApp title="Installed Applications" onClose={closeApp}><InstalledApps close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.SETTINGS && <WindowedApp title="Settings" onClose={closeApp}><SettingsApp currentUser={currentUser} settings={settings} updateSetting={updateSetting} close={closeApp} systemVolume={volume} setSystemVolume={setVolume} brightness={brightness} setBrightness={setBrightness} wifiState={wifiState} setWifiState={setWifiState}/></WindowedApp>}
-      {activeApp === APP_REFS.USER_MANAGE && <WindowedApp title="User Management" onClose={closeApp}><UserManagementApp close={closeApp} users={users} currentUser={currentUser} updateUsers={updateUsers} updateLockPattern={updateLockPattern}/></WindowedApp>}
-      {activeApp === APP_REFS.NETWORK && <WindowedApp title="Network Resources" onClose={closeApp}><NetworkApp close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.NOTEPAD && <WindowedApp title="Text Editor" onClose={closeApp}><TextEditorApp close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.PAINT && <WindowedApp title="Canvas Paint" onClose={closeApp}><PlaceholderApp title="Canvas Paint" close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.CALC && <WindowedApp title="Calculator" onClose={closeApp}><PlaceholderApp title="Calculator" close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.ABOUT && <WindowedApp title="About System" onClose={closeApp}><AboutSystemApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.MONITOR && <WindowedApp title="System Status" onClose={closeApp}><SystemMonitorApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.FILES && <WindowedApp title="Nucleus Files" onClose={closeApp}><FileManagerApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.APPS && <WindowedApp title="Installed Applications" onClose={closeApp}><InstalledApps close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.SETTINGS && <WindowedApp title="Settings" onClose={closeApp}><SettingsApp currentUser={currentUser} close={closeApp} systemVolume={volume} setSystemVolume={setVolume} brightness={brightness} setBrightness={setBrightness} wifiState={wifiState} setWifiState={setWifiState}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.USER_MANAGE && <WindowedApp title="User Management" onClose={closeApp}><UserManagementApp close={closeApp} users={users} currentUser={currentUser} updateUsers={updateUsers} updateLockPattern={updateLockPattern}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.NETWORK && <WindowedApp title="Network Resources" onClose={closeApp} width="w-[90%]" height="h-[85%]"><NetworkApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.NOTEPAD && <WindowedApp title="Text Editor" onClose={closeApp}><TextEditorApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.PAINT && <WindowedApp title="Canvas Paint" onClose={closeApp}><PaintApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.CALC && <WindowedApp title="Calculator" onClose={closeApp}><CalculatorApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.ABOUT && <WindowedApp title="About System" onClose={closeApp}><AboutSystemApp close={closeApp}/></WindowedApp>}
+      {xmbActiveApp === APP_REFS.OLLAMA && <WindowedApp title="Aether AI" onClose={closeApp}><OllamaApp close={closeApp}/></WindowedApp>}
     </div>
   );
 };
 
-/* --- 6. ROOT EXPORT --- */
+const AetherShell = () => {
+    const { viewMode, setViewMode, currentUser, users, xmbActiveApp, setXmbActiveApp, openWindow, settings } = useContext(WindowContext);
+    const [showDock, setShowDock] = useState(false);
+    const [time, setTime] = useState(new Date());
+
+    useEffect(() => {
+        const t = setInterval(() => setTime(new Date()), 1000);
+        return () => clearInterval(t);
+    }, []);
+
+    useEffect(() => {
+        if (viewMode === 'desktop') {
+            setShowDock(true);
+        } else {
+            setShowDock(false);
+        }
+    }, [viewMode]);
+
+    useEffect(() => {
+        const handleKey = (e) => {
+            if (e.key === 'F1') setViewMode(prev => prev === 'xmb' ? 'desktop' : 'xmb');
+            if (e.key.toLowerCase() === 'h') setShowDock(prev => !prev);
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [setViewMode]);
+    
+    useEffect(() => {
+        let animationFrameId; let lastButtonState = { toggle: false };
+        const checkGamepad = () => {
+            const gamepads = navigator.getGamepads();
+            if (gamepads[0]) { 
+                const gp = gamepads[0];
+                const togglePressed = gp.buttons[8]?.pressed || gp.buttons[16]?.pressed; 
+                if (togglePressed && !lastButtonState.toggle) { setShowDock(prev => !prev); }
+                lastButtonState = { toggle: togglePressed };
+            }
+            animationFrameId = requestAnimationFrame(checkGamepad);
+        };
+        checkGamepad();
+        return () => cancelAnimationFrame(animationFrameId);
+    }, []);
+
+    const APP_REFS = { FILES: 'files', MONITOR: 'monitor', SETTINGS: 'settings', APPS: 'apps', NETWORK: 'network', NOTEPAD: 'notepad', PAINT: 'paint', CALC: 'calc', USER_MANAGE: 'user_manage', ABOUT: 'about', OLLAMA: 'ollama' };
+
+    const handleDockLaunch = (type) => {
+        if (viewMode === 'desktop') {
+            if (type === 'network') openWindow('web', 'Aether Web', <NetworkApp />, Globe, true);
+            if (type === 'files') openWindow('files', 'My PC', <FileManagerApp />, Folder, true);
+            if (type === 'settings') openWindow('settings', 'System Configuration', <SettingsApp />, Settings);
+            if (type === 'about') openWindow('about', 'About System', <AboutSystemApp />, Info);
+        } else {
+            if (type === 'network') setXmbActiveApp(APP_REFS.NETWORK);
+            if (type === 'files') setXmbActiveApp(APP_REFS.FILES);
+            if (type === 'settings') setXmbActiveApp(APP_REFS.SETTINGS);
+            if (type === 'about') setXmbActiveApp(APP_REFS.ABOUT);
+        }
+    };
+
+    return (
+        <div className="relative w-screen h-screen bg-black overflow-hidden font-sans select-none">
+            <div className="absolute inset-0 z-0">
+                 <WaveBackground bgColor={settings.bgColor} waveHue={settings.hue} dynamicWave={settings.dynamicWave} blur={viewMode === 'desktop'} />
+            </div>
+
+            <motion.div 
+                initial={{ opacity: 1, scale: 1 }}
+                animate={{ 
+                    opacity: viewMode === 'xmb' ? 1 : 0, 
+                    scale: viewMode === 'xmb' ? 1 : 1.1,
+                    pointerEvents: viewMode === 'xmb' ? 'auto' : 'none',
+                    filter: viewMode === 'xmb' ? 'blur(0px)' : 'blur(10px)'
+                }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 z-10"
+            >
+                <SystemKernel />
+            </motion.div>
+
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ 
+                    opacity: viewMode === 'desktop' ? 1 : 0,
+                    pointerEvents: viewMode === 'desktop' ? 'auto' : 'none'
+                }}
+                transition={{ duration: 0.5 }}
+                className="absolute inset-0 z-20"
+            >
+                <DesktopEnvironment />
+            </motion.div>
+            
+            {currentUser && (
+                <MacDock 
+                    time={time} 
+                    activeApp={viewMode === 'xmb' ? xmbActiveApp : null} 
+                    closeApp={() => viewMode === 'desktop' ? setViewMode('xmb') : setXmbActiveApp(null)} 
+                    currentUser={currentUser} 
+                    visible={showDock} 
+                    onLaunch={handleDockLaunch} 
+                    appRefMap={APP_REFS} 
+                />
+            )}
+            
+            <div className="fixed bottom-4 right-4 z-[1000] text-[10px] text-white/20 pointer-events-none">F1: SWITCH VIEW</div>
+        </div>
+    );
+};
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <SystemKernel />
+        <WindowManagerProvider>
+          <AetherShell />
+        </WindowManagerProvider>
     </ErrorBoundary>
   );
 }
