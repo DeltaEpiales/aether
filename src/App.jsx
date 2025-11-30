@@ -8,8 +8,61 @@ import {
   Bot, Send, User as UserIcon, RefreshCw, ArrowLeft, File, Save,
   Layers, Download, Calendar, Command, Minus, Palette, Copy, Link, Lock,
   ArrowUp, ArrowDown, ArrowRight, Check, AlertCircle, LogOut, Home, Menu,
-  Search, AppWindow, Activity, Info, GitBranch
+  Search, AppWindow, Activity, Info, GitBranch, Volume1, WifiOff, Signal,
+  Sun, Moon, Triangle
 } from 'lucide-react';
+
+/* --- 0. ERROR BOUNDARY (Recovery Mode) --- */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Kernel Panic:", error, errorInfo);
+  }
+
+  handleFactoryReset = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-screen w-full bg-black text-red-500 font-mono p-10 z-[9999] fixed inset-0">
+          <AlertCircle size={64} className="mb-6 animate-pulse" />
+          <h1 className="text-4xl mb-4 tracking-widest uppercase border-b border-red-900 pb-2">Kernel Panic</h1>
+          <p className="text-white/60 mb-8 text-center max-w-lg">
+            System initialization failed. Data corruption detected in user partition.
+            <br/><br/>
+            <span className="text-red-400 opacity-50 text-xs">{this.state.error?.toString()}</span>
+          </p>
+          <div className="flex gap-4">
+            <button 
+                onClick={() => window.location.reload()}
+                className="px-6 py-3 border border-white/20 text-white rounded hover:bg-white/10 transition-all uppercase tracking-widest text-xs"
+            >
+                Attempt Reboot
+            </button>
+            <button 
+                onClick={this.handleFactoryReset}
+                className="px-6 py-3 bg-red-900/20 border border-red-500 text-red-400 rounded hover:bg-red-900/40 transition-all uppercase tracking-widest text-xs"
+            >
+                Factory Reset (Clear Data)
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* --- 1. UTILITIES & HOOKS --- */
 
@@ -82,7 +135,7 @@ const useMenuNav = (itemCount, orientation = 'vertical', isActive = true) => {
 };
 
 const getHueFromHex = (hex) => {
-    if (hex.length !== 7 || hex === '#000000') return 210;
+    if (!hex || hex.length !== 7 || hex === '#000000') return 210;
     const r = parseInt(hex.substring(1, 3), 16) / 255;
     const g = parseInt(hex.substring(3, 5), 16) / 255;
     const b = parseInt(hex.substring(5, 7), 16) / 255;
@@ -102,6 +155,7 @@ const getHueFromHex = (hex) => {
 };
 
 const shadeColor = (color, percent) => {
+    if(!color) return '#000000';
     let R = parseInt(color.substring(1, 3), 16);
     let G = parseInt(color.substring(3, 5), 16);
     let B = parseInt(color.substring(5, 7), 16);
@@ -200,13 +254,16 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1 }) 
   return <canvas ref={canvasRef} className="fixed top-0 left-0 w-full h-full -z-10" />;
 };
 
-/* --- 3. INTERNAL APPS (System Apps) --- */
+/* --- 3. INTERNAL APPS --- */
 
 const AboutSystemApp = ({ close }) => {
     const [specs, setSpecs] = useState(null);
-    const [updateStatus, setUpdateStatus] = useState('idle'); // idle, checking, available, updating, restarting
+    const [updateStatus, setUpdateStatus] = useState('idle');
     const [progress, setProgress] = useState(0);
-    const repoUrl = "YOUR_USERNAME/YOUR_REPO"; // User to configure
+    const [errorMsg, setErrorMsg] = useState('');
+    const repoOwner = "DeltaEpiales";
+    const repoName = "aether";
+    const currentVersion = "v1.2.0"; 
 
     useEffect(() => {
         const loadSpecs = async () => {
@@ -214,25 +271,58 @@ const AboutSystemApp = ({ close }) => {
                 const s = await window.aetherSystem.getSpecs();
                 setSpecs(s);
             } else {
-                setSpecs({ cpu: 'Simulated CPU', ram: '16 GB', os: 'Web Browser', gpu: 'WebGL Renderer' });
+                setSpecs({ cpu: 'Web Environment (Simulated)', ram: 'N/A', os: 'Browser', gpu: 'WebGL' });
             }
         };
         loadSpecs();
     }, []);
 
-    const checkForUpdates = () => {
+    const checkForUpdates = async () => {
         setUpdateStatus('checking');
-        setTimeout(() => {
-            // Mocking a successful check. In production, fetch(`https://api.github.com/repos/${repoUrl}/releases/latest`)
-            setUpdateStatus('available');
-        }, 1500);
+        setErrorMsg('');
+        try {
+            // Check Releases first
+            let response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/releases/latest`);
+            let data;
+            
+            if (response.ok) {
+                data = await response.json();
+                if (data.tag_name !== currentVersion) {
+                    setUpdateStatus('available');
+                    return;
+                }
+            } else if (response.status === 404) {
+               // If no release, check Tags
+               response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/tags`);
+               if (response.ok) {
+                   const tags = await response.json();
+                   if (tags.length > 0 && tags[0].name !== currentVersion) {
+                       setUpdateStatus('available');
+                       return;
+                   }
+               } else {
+                   // Fallback: Check commits to main
+                   response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/commits/main`);
+                   if(response.ok) {
+                       // Just pretend update is available if we can see commits, usually means active dev
+                       setUpdateStatus('available'); 
+                       return; 
+                   }
+               }
+            }
+            setUpdateStatus('uptodate');
+        } catch (error) {
+            console.error("Update check failed:", error);
+            setUpdateStatus('error');
+            setErrorMsg('Network Error');
+        }
     };
 
     const installUpdate = () => {
         setUpdateStatus('updating');
         let p = 0;
         const interval = setInterval(() => {
-            p += Math.random() * 10;
+            p += Math.random() * 8; 
             if (p >= 100) {
                 p = 100;
                 clearInterval(interval);
@@ -243,74 +333,83 @@ const AboutSystemApp = ({ close }) => {
                 }, 2000);
             }
             setProgress(p);
-        }, 300);
+        }, 100);
     };
 
     return (
         <div className="flex flex-col h-full p-8 text-white">
             <div className="flex items-center gap-6 mb-8 border-b border-white/10 pb-6">
-                <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <Activity size={48} className="text-white" />
+                <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-blue-500/20 ring-1 ring-white/10">
+                    <Activity size={48} className="text-white drop-shadow-md" />
                 </div>
                 <div>
-                    <h1 className="text-3xl font-light tracking-tight">Aether OS</h1>
-                    <div className="text-sm opacity-50 font-mono mt-1">Version 1.2.0 (Stable)</div>
-                    <div className="text-xs opacity-30 mt-1 uppercase tracking-widest">Kernel: {window.aetherSystem?.platform || 'Web'}</div>
+                    <h1 className="text-4xl font-thin tracking-tight">Aether OS</h1>
+                    <div className="text-sm opacity-60 font-mono mt-1 tracking-wider">{currentVersion} (Stable)</div>
+                    <div className="text-[10px] opacity-40 mt-1 uppercase tracking-[0.2em]">Kernel: {window.aetherSystem?.platform || 'WEB'}</div>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="bg-white/5 p-4 rounded border border-white/5">
-                    <div className="text-xs uppercase opacity-40 mb-1">Processor</div>
-                    <div className="font-mono text-sm truncate" title={specs?.cpu}>{specs?.cpu || 'Loading...'}</div>
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                    <div className="text-[10px] uppercase opacity-40 mb-2 tracking-widest font-bold">Processor</div>
+                    <div className="font-mono text-sm truncate text-blue-200" title={specs?.cpu}>{specs?.cpu || 'Initializing...'}</div>
                 </div>
-                <div className="bg-white/5 p-4 rounded border border-white/5">
-                    <div className="text-xs uppercase opacity-40 mb-1">Memory</div>
-                    <div className="font-mono text-sm">{specs?.ram || 'Loading...'}</div>
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                    <div className="text-[10px] uppercase opacity-40 mb-2 tracking-widest font-bold">Memory</div>
+                    <div className="font-mono text-sm text-purple-200">{specs?.ram || '...'}</div>
                 </div>
-                <div className="bg-white/5 p-4 rounded border border-white/5">
-                    <div className="text-xs uppercase opacity-40 mb-1">Graphics</div>
-                    <div className="font-mono text-sm truncate" title={specs?.gpu}>{specs?.gpu || 'Loading...'}</div>
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                    <div className="text-[10px] uppercase opacity-40 mb-2 tracking-widest font-bold">Graphics Unit</div>
+                    <div className="font-mono text-sm truncate text-green-200" title={specs?.gpu}>{specs?.gpu || '...'}</div>
                 </div>
-                <div className="bg-white/5 p-4 rounded border border-white/5">
-                    <div className="text-xs uppercase opacity-40 mb-1">System Type</div>
-                    <div className="font-mono text-sm">{specs?.os || 'Loading...'}</div>
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                    <div className="text-[10px] uppercase opacity-40 mb-2 tracking-widest font-bold">Build Distro</div>
+                    <div className="font-mono text-sm text-yellow-200">{specs?.os || '...'}</div>
                 </div>
             </div>
 
-            <div className="mt-auto bg-black/40 rounded-xl p-4 border border-white/10">
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <GitBranch size={16} className="text-blue-400"/>
-                        <span className="text-sm font-bold">System Update</span>
+            <div className="mt-auto bg-[#0a0a0a] rounded-xl p-5 border border-white/10 shadow-inner">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                        <GitBranch size={18} className="text-blue-400"/>
+                        <span className="text-sm font-bold tracking-wide">System Update</span>
                     </div>
                     {updateStatus === 'idle' && (
-                        <button onClick={checkForUpdates} className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded text-xs transition-colors">Check Now</button>
+                        <button onClick={checkForUpdates} className="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs uppercase tracking-widest transition-all hover:scale-105">Check for Updates</button>
+                    )}
+                    {updateStatus === 'uptodate' && (
+                        <span className="text-xs text-green-400 uppercase tracking-widest flex items-center gap-2"><Check size={12}/> Up to Date</span>
+                    )}
+                    {updateStatus === 'error' && (
+                        <span className="text-xs text-red-400 uppercase tracking-widest flex items-center gap-2"><AlertCircle size={12}/> {errorMsg}</span>
                     )}
                 </div>
 
-                {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse">Contacting update server...</div>}
+                {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse font-mono">&gt; Contacting GitHub API...</div>}
                 
                 {updateStatus === 'available' && (
-                    <div className="flex items-center justify-between bg-green-500/10 p-2 rounded border border-green-500/20">
-                        <div className="text-xs text-green-400">New patch available via GitHub</div>
-                        <button onClick={installUpdate} className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs font-bold shadow-lg shadow-green-500/20">Install & Restart</button>
+                    <div className="flex items-center justify-between bg-blue-500/10 p-3 rounded-lg border border-blue-500/20">
+                        <div className="flex flex-col">
+                            <span className="text-xs font-bold text-blue-300">New Version Available</span>
+                            <span className="text-[10px] opacity-60">Patch ready for deployment.</span>
+                        </div>
+                        <button onClick={installUpdate} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-bold shadow-lg shadow-blue-500/20 transition-all hover:scale-105">INSTALL PATCH</button>
                     </div>
                 )}
 
                 {updateStatus === 'updating' && (
-                    <div className="space-y-2">
-                        <div className="flex justify-between text-xs opacity-50">
-                            <span>Downloading patch...</span>
+                    <div className="space-y-3">
+                        <div className="flex justify-between text-[10px] uppercase tracking-widest opacity-60">
+                            <span>Downloading Packages...</span>
                             <span>{Math.round(progress)}%</span>
                         </div>
-                        <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 transition-all duration-300" style={{width: `${progress}%`}}></div>
+                        <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-100 ease-linear shadow-[0_0_10px_#3b82f6]" style={{width: `${progress}%`}}></div>
                         </div>
                     </div>
                 )}
 
-                {updateStatus === 'restarting' && <div className="text-xs text-blue-400 animate-pulse">Rebooting Kernel...</div>}
+                {updateStatus === 'restarting' && <div className="text-xs text-blue-400 animate-pulse font-mono uppercase tracking-widest text-center py-2">&gt;&gt; REBOOTING SHELL &lt;&lt;</div>}
             </div>
         </div>
     )
@@ -512,56 +611,182 @@ const InstalledApps = ({ close }) => {
     )
 }
 
-const SettingsApp = ({ currentUser, settings, updateSetting, close }) => {
-    const menuItems = ['color', 'wave', 'speed', 'back'];
-    const { selectedIndex } = useMenuNav(menuItems.length, 'vertical', true);
-    const { playSelect } = useSound();
+const SettingsApp = ({ currentUser, settings, updateSetting, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
+    const [activeTab, setActiveTab] = useState('general'); // general, network, audio
+    const menuItems = {
+        general: ['color', 'wave', 'speed', 'brightness'],
+        network: ['wifi', 'bluetooth', 'ethernet'],
+        audio: ['master', 'sfx', 'voice']
+    };
+    
+    // Flatten menu items for simpler nav or stick to one logic
+    const currentMenu = menuItems[activeTab];
+    const { selectedIndex, setSelectedIndex } = useMenuNav(currentMenu.length, 'vertical', true);
+    const { playSelect, playNav } = useSound();
 
+    // Tab switching logic (L/R bumpers logic)
+    useEffect(() => {
+        const handleTabs = (e) => {
+            if (e.key === 'q' || e.key === 'PageUp') {
+                setActiveTab(prev => prev === 'general' ? 'audio' : prev === 'audio' ? 'network' : 'general');
+                playNav();
+                setSelectedIndex(0);
+            }
+            if (e.key === 'e' || e.key === 'PageDown') {
+                setActiveTab(prev => prev === 'general' ? 'network' : prev === 'network' ? 'audio' : 'general');
+                playNav();
+                setSelectedIndex(0);
+            }
+        };
+        window.addEventListener('keydown', handleTabs);
+        return () => window.removeEventListener('keydown', handleTabs);
+    }, [playNav, setSelectedIndex]);
+
+    // Value adjustment logic
     useEffect(() => {
         const handleAdjust = (e) => {
-            const item = menuItems[selectedIndex];
-            if (item === 'speed') {
-                if (e.key === 'ArrowRight' || e.key === 'Enter') updateSetting('speed', Math.min(3, settings.speed + 0.5));
-                if (e.key === 'ArrowLeft') updateSetting('speed', Math.max(0.5, settings.speed - 0.5));
+            const item = currentMenu[selectedIndex];
+            
+            // GENERAL
+            if (activeTab === 'general') {
+                if (item === 'speed') {
+                    if (e.key === 'ArrowRight' || e.key === 'Enter') updateSetting('speed', Math.min(3, settings.speed + 0.5));
+                    if (e.key === 'ArrowLeft') updateSetting('speed', Math.max(0.5, settings.speed - 0.5));
+                }
+                if (item === 'wave') {
+                    if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') updateSetting('dynamicWave', !settings.dynamicWave);
+                }
+                if (item === 'brightness') {
+                    if (e.key === 'ArrowRight') setBrightness(Math.min(1, brightness + 0.1));
+                    if (e.key === 'ArrowLeft') setBrightness(Math.max(0.1, brightness - 0.1));
+                }
             }
-            if (item === 'wave') {
-                if (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'ArrowLeft') updateSetting('dynamicWave', !settings.dynamicWave);
+            
+            // NETWORK
+            if (activeTab === 'network') {
+                if (item === 'wifi' && (e.key === 'Enter' || e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+                    setWifiState(p => !p);
+                }
             }
-            if (item === 'back' && e.key === 'Enter') { playSelect(); close(); }
+            
+            // AUDIO
+            if (activeTab === 'audio') {
+                if (item === 'master') {
+                    if (e.key === 'ArrowRight') setSystemVolume(Math.min(1, systemVolume + 0.05));
+                    if (e.key === 'ArrowLeft') setSystemVolume(Math.max(0, systemVolume - 0.05));
+                }
+            }
+
+            if (e.key === 'Backspace' || e.key === 'Escape') { playSelect(); close(); }
         };
         window.addEventListener('keydown', handleAdjust);
         return () => window.removeEventListener('keydown', handleAdjust);
-    }, [selectedIndex, settings, updateSetting, close, playSelect]);
+    }, [selectedIndex, activeTab, settings, updateSetting, close, playSelect, systemVolume, setSystemVolume, currentMenu, brightness, setBrightness, wifiState, setWifiState]);
 
     return (
-        <div className="p-8 text-white h-full overflow-y-auto flex flex-col">
-            <h2 className="text-xl uppercase tracking-widest border-b border-white/10 pb-4 mb-6 text-blue-400">System Configuration</h2>
-            <div className="space-y-6 flex-1">
-                <section className={`p-4 rounded border transition-all ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                    <h3 className="text-xs uppercase opacity-50 mb-2">Primary Background Color</h3>
-                    <div className="flex items-center gap-4">
-                        <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-10 h-10 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
-                        <span className="font-mono text-sm">{settings.bgColor}</span>
-                    </div>
-                </section>
-                <section className={`p-4 rounded border transition-all ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                    <h3 className="text-xs uppercase opacity-50 mb-2">Wave Dynamics</h3>
-                    <div className="flex justify-between items-center">
-                        <span>{settings.dynamicWave ? 'Dynamic (XMB Style)' : 'Static (Mono Style)'}</span>
-                        <div className={`w-4 h-4 rounded-full ${settings.dynamicWave ? 'bg-green-400 shadow-[0_0_10px_lime]' : 'bg-slate-600'}`}></div>
-                    </div>
-                    <div className="text-[10px] opacity-40 mt-1">[ENTER] to Toggle</div>
-                </section>
-                <section className={`p-4 rounded border transition-all ${selectedIndex === 2 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
-                    <h3 className="text-xs uppercase opacity-50 mb-2">Animation Speed</h3>
-                    <div className="flex items-center gap-4">
-                        <input type="range" min="0.5" max="3" step="0.5" value={settings.speed} onChange={(e) => updateSetting('speed', parseFloat(e.target.value))} className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500" />
-                        <span className="font-mono">{settings.speed}x</span>
-                    </div>
-                    <div className="text-[10px] opacity-40 mt-1">[LEFT/RIGHT] to Adjust</div>
-                </section>
+        <div className="flex h-full text-white">
+            {/* Sidebar */}
+            <div className="w-48 bg-black/20 border-r border-white/5 p-6 flex flex-col gap-2">
+                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'general' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('general')}>
+                    <Settings size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">System</span>
+                </div>
+                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'network' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('network')}>
+                    <Wifi size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Network</span>
+                </div>
+                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'audio' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('audio')}>
+                    <Volume2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Audio</span>
+                </div>
+                
+                <div className="mt-auto text-[9px] text-white/30 uppercase tracking-widest">
+                    [Q] / [E] to Switch Tabs
+                </div>
             </div>
-            <button onClick={close} className={`mt-4 p-4 rounded border text-center font-bold tracking-widest uppercase transition-all ${selectedIndex === 3 ? 'bg-red-500/20 border-red-500 text-white' : 'border-white/10 text-white/50'}`}>Close Settings</button>
+
+            {/* Content */}
+            <div className="flex-1 p-8 overflow-y-auto">
+                <h2 className="text-2xl font-light mb-8 border-b border-white/10 pb-4">{activeTab === 'general' ? 'General Settings' : activeTab === 'network' ? 'Network Configuration' : 'Audio Mixer'}</h2>
+                
+                <div className="space-y-4">
+                    {activeTab === 'general' && (
+                        <>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Primary Background Color</h3>
+                                <div className="flex items-center gap-4">
+                                    <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-10 h-10 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
+                                    <span className="font-mono text-sm">{settings.bgColor}</span>
+                                </div>
+                            </section>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Wave Dynamics</h3>
+                                <div className="flex justify-between items-center">
+                                    <span>{settings.dynamicWave ? 'Dynamic (XMB Style)' : 'Static (Mono Style)'}</span>
+                                    <div className={`w-4 h-4 rounded-full ${settings.dynamicWave ? 'bg-green-400 shadow-[0_0_10px_lime]' : 'bg-slate-600'}`}></div>
+                                </div>
+                            </section>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 2 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Animation Speed</h3>
+                                <div className="flex items-center gap-4">
+                                    <input type="range" min="0.5" max="3" step="0.5" value={settings.speed} onChange={(e) => updateSetting('speed', parseFloat(e.target.value))} className="w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                                    <span className="font-mono">{settings.speed}x</span>
+                                </div>
+                            </section>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 3 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Screen Brightness</h3>
+                                <div className="flex items-center gap-4">
+                                    <Sun size={16} />
+                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
+                                        <div className="h-full bg-yellow-400 transition-all duration-75" style={{width: `${brightness * 100}%`}}></div>
+                                    </div>
+                                    <span className="font-mono w-8 text-right">{Math.round(brightness * 100)}%</span>
+                                </div>
+                            </section>
+                        </>
+                    )}
+
+                    {activeTab === 'network' && (
+                        <>
+                            <div className={`p-4 rounded border flex justify-between items-center ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'opacity-60 border-transparent'}`}>
+                                <div className="flex items-center gap-4"><Wifi size={20} className={wifiState ? "text-green-400" : "text-slate-500"} /> <span>Wireless Connection</span></div>
+                                <div className={`flex items-center gap-2 text-xs ${wifiState ? 'text-green-400' : 'text-slate-500'}`}>
+                                    {wifiState && <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>} 
+                                    {wifiState ? 'CONNECTED' : 'DISABLED'}
+                                </div>
+                            </div>
+                            <div className={`p-4 rounded border flex justify-between items-center ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'opacity-60 border-transparent'}`}>
+                                <div className="flex items-center gap-4"><Bluetooth size={20} className="text-blue-400" /> <span>Bluetooth</span></div>
+                                <span className="text-xs opacity-50">Searching...</span>
+                            </div>
+                            <div className="mt-8 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded text-xs text-yellow-200">
+                                Network controls interact with the OS Kernel (Simulated in Web Mode).
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === 'audio' && (
+                        <>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 0 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Master Volume</h3>
+                                <div className="flex items-center gap-4">
+                                    <Volume1 size={16} />
+                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
+                                        <div className="h-full bg-white transition-all duration-75" style={{width: `${systemVolume * 100}%`}}></div>
+                                    </div>
+                                    <span className="font-mono w-8 text-right">{Math.round(systemVolume * 100)}</span>
+                                </div>
+                            </section>
+                            <section className={`p-4 rounded border transition-all ${selectedIndex === 1 ? 'bg-white/10 border-blue-400/50' : 'bg-transparent border-transparent opacity-60'}`}>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">SFX Volume</h3>
+                                <div className="flex items-center gap-4">
+                                    <Volume2 size={16} />
+                                    <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
+                                        <div className="h-full bg-blue-400" style={{width: '80%'}}></div>
+                                    </div>
+                                </div>
+                            </section>
+                        </>
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
@@ -596,6 +821,7 @@ const UserManagementApp = ({ close, users, currentUser, updateUsers, updateLockP
 
     const handleAddUser = () => {
         if (newUser.trim() === '' || users.find(u => u.name === newUser)) { setStatus('Error: Invalid name'); playError(); return; }
+        // SAFETY FIX: Default pattern to '' to ensure setup mode works correctly
         const user = { id: `u${Date.now()}`, name: newUser, pattern: '', color: newUserColor }; 
         updateUsers([...users, user]);
         setNewUser('');
@@ -844,16 +1070,28 @@ const MacDock = ({ time, activeApp, closeApp, currentUser, visible, onLaunch, ap
   );
 };
 
-export default function HybridOS() {
+// -- KERNEL LOGIC COMPONENT (Internal) --
+// Separating logic to allow ErrorBoundary to catch init errors
+const SystemKernel = () => {
   const [colIndex, setColIndex] = useState(2);
   const [rowIndex, setRowIndex] = useState(null);
   const [time, setTime] = useState(new Date());
   const [activeApp, setActiveApp] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
   const [showTaskbar, setShowTaskbar] = useState(false); 
+  const [brightness, setBrightness] = useState(1);
+  const [wifiState, setWifiState] = useState(true);
 
+  // CRITICAL FIX: Safe User Loading & Validation
   const [users, setUsers] = useState(() => {
-    try { const storedUsers = JSON.parse(localStorage.getItem('aether_users')); if (storedUsers && storedUsers.length > 0) return storedUsers; } catch {}
+    try { 
+        const storedUsers = JSON.parse(localStorage.getItem('aether_users')); 
+        if (Array.isArray(storedUsers) && storedUsers.length > 0) {
+            const valid = storedUsers.every(u => u && u.id && u.name);
+            if(valid) return storedUsers;
+        } 
+    } catch {}
+    // Default fallback if corrupt
     return [{ id: 'u1', name: 'User 1', pattern: 'up,up,down,down', color: '#3b82f6' }, { id: 'u2', name: 'Admin', pattern: 'left,right,left,right,up,down,enter', color: '#ef4444' }];
   });
   
@@ -881,7 +1119,7 @@ export default function HybridOS() {
   };
 
   const containerRef = useRef(null);
-  const { playNav, playSelect, playBack, playLogin, playSuccess, playFail } = useSound();
+  const { playNav, playSelect, playBack, playLogin, playSuccess, playFail, setVolume, volume } = useSound();
   const stateRef = useRef({ colIndex, rowIndex, activeApp, isFocused, currentUser, isLocked });
   const scrollTimeoutRef = useRef(null); 
 
@@ -1045,6 +1283,10 @@ export default function HybridOS() {
 
   return (
     <div ref={containerRef} className="relative w-full h-screen overflow-hidden text-white font-sans select-none bg-transparent outline-none" tabIndex={0} onClick={activateSystem} onFocus={() => setIsFocused(true)} onBlur={() => setIsFocused(false)} >
+      
+      {/* Brightness Overlay */}
+      <div className="absolute inset-0 z-[100] pointer-events-none bg-black transition-opacity duration-300" style={{opacity: 1 - brightness}}></div>
+
       <WaveBackground bgColor={settings.bgColor} waveHue={getCurrentWaveHue()} dynamicWave={settings.dynamicWave} speedMultiplier={settings.speed} />
       
       {currentUser && !isLocked && globalTransitionState === 'ready' && (
@@ -1063,6 +1305,13 @@ export default function HybridOS() {
 
       <div className={`absolute top-0 left-0 w-full h-16 flex items-center justify-between px-10 transition-transform duration-500 z-30 ${isFocused && globalTransitionState === 'ready' && !isLocked ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="flex items-center gap-6"><span className="text-xs font-bold tracking-[0.25em] text-blue-400 uppercase">Aether</span><div className="w-[1px] h-4 bg-white/20"></div>{currentUser && <span className="text-xs font-medium tracking-widest text-slate-300 uppercase animate-in slide-in-from-left-4">{currentCategory.label}</span>}</div>
+        <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+                <Wifi size={14} className={wifiState ? 'text-white/60' : 'text-red-400/60'} />
+                <Volume2 size={14} className="text-white/60" />
+                <span className="text-[10px] font-mono opacity-50">{Math.round(volume * 100)}%</span>
+            </div>
+        </div>
       </div>
 
       {globalTransitionState === 'login' && !currentUser && (
@@ -1106,7 +1355,7 @@ export default function HybridOS() {
       {activeApp === APP_REFS.MONITOR && <WindowedApp title="System Status" onClose={closeApp}><SystemMonitorApp close={closeApp}/></WindowedApp>}
       {activeApp === APP_REFS.FILES && <WindowedApp title="Nucleus Files" onClose={closeApp}><FileManagerApp close={closeApp}/></WindowedApp>}
       {activeApp === APP_REFS.APPS && <WindowedApp title="Installed Applications" onClose={closeApp}><InstalledApps close={closeApp}/></WindowedApp>}
-      {activeApp === APP_REFS.SETTINGS && <WindowedApp title="Settings" onClose={closeApp}><SettingsApp currentUser={currentUser} settings={settings} updateSetting={updateSetting} close={closeApp}/></WindowedApp>}
+      {activeApp === APP_REFS.SETTINGS && <WindowedApp title="Settings" onClose={closeApp}><SettingsApp currentUser={currentUser} settings={settings} updateSetting={updateSetting} close={closeApp} systemVolume={volume} setSystemVolume={setVolume} brightness={brightness} setBrightness={setBrightness} wifiState={wifiState} setWifiState={setWifiState}/></WindowedApp>}
       {activeApp === APP_REFS.USER_MANAGE && <WindowedApp title="User Management" onClose={closeApp}><UserManagementApp close={closeApp} users={users} currentUser={currentUser} updateUsers={updateUsers} updateLockPattern={updateLockPattern}/></WindowedApp>}
       {activeApp === APP_REFS.NETWORK && <WindowedApp title="Network Resources" onClose={closeApp}><NetworkApp close={closeApp}/></WindowedApp>}
       {activeApp === APP_REFS.NOTEPAD && <WindowedApp title="Text Editor" onClose={closeApp}><TextEditorApp close={closeApp}/></WindowedApp>}
@@ -1114,5 +1363,14 @@ export default function HybridOS() {
       {activeApp === APP_REFS.CALC && <WindowedApp title="Calculator" onClose={closeApp}><PlaceholderApp title="Calculator" close={closeApp}/></WindowedApp>}
       {activeApp === APP_REFS.ABOUT && <WindowedApp title="About System" onClose={closeApp}><AboutSystemApp close={closeApp}/></WindowedApp>}
     </div>
+  );
+};
+
+/* --- 6. ROOT EXPORT --- */
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <SystemKernel />
+    </ErrorBoundary>
   );
 }
