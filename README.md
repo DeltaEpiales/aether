@@ -1,16 +1,16 @@
-# React + Vite
+Aether OSAether OS is a concept operating system shell built with React, Vite, and Electron. It provides an immersive, console-inspired interface (XMB) alongside a traditional desktop environment, focusing on aesthetics, local AI integration, and user customization.✨ FeaturesDual Mode Interface:XMB Mode: A gamepad-friendly, horizontal media bar interface for launching apps and games.Desktop Mode: A productive desktop environment with a Mac-style dock and window management.System Applications:Nucleus Files: A functional file explorer with context menus and file manipulation.Aether AI: Local LLM integration via Ollama for private, offline AI assistance.User Management: Multi-user support with admin privileges, custom themes, and profile pictures.Security: Custom pattern-based lock screens for user profiles.Web Browser: Integrated secure web browser.Productivity: Includes Text Editor, Calculator, Paint, and System Monitor.Immersive Visuals:Dynamic wave backgrounds that react to system state.Fully responsive animations powered by Framer Motion.🚀 Getting StartedPrerequisitesNode.js (v16 or higher)Ollama (Optional, for AI features): Download Ollama and ensure it is running on localhost:11434.InstallationClone the repository:git clone [https://github.com/DeltaEpiales/aether-os.git](https://github.com/DeltaEpiales/aether-os.git)
+cd aether-os
+Install dependencies:npm install
+Run in Development Mode:This command starts the React dev server and launches the Electron window.npm run dev:app
+🛠️ Building ExecutablesTo package Aether OS into an executable file (e.g., .exe, .dmg, .AppImage) for distribution:# Build for your current operating system
+npm run dist
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# Build specifically for Windows
+npm run dist:win
 
-Currently, two official plugins are available:
+# Build specifically for Mac (requires macOS)
+npm run dist:mac
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# Build specifically for Linux
+npm run dist:linux
+The output files will be located in the release/ directory.🎮 ControlsKey / ActionFunctionF1Toggle between XMB and Desktop ModeHToggle Dock / Taskbar visibilityArrow KeysNavigate XMB InterfaceEnterLaunch App / Select ItemBackspaceGo Back / Close AppRight ClickOpen Context Menu📄 LicenseMIT LicenseCopyright (c) 2024 Aether DevPermission is hereby granted, free of charge, to any person obtaining a copyof this software and associated documentation files (the "Software"), to dealin the Software without restriction, including without limitation the rightsto use, copy, modify, merge, publish, distribute, sublicense, and/or sellcopies of the Software, and to permit persons to whom the Software isfurnished to do so, subject to the following conditions:The above copyright notice and this permission notice shall be included in allcopies or substantial portions of the Software.THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS ORIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THEAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHERLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THESOFTWARE.
