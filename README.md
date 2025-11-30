@@ -42,7 +42,7 @@ Installation
 
 Clone the repository:
 
-git clone [https://github.com/yourusername/aether-os.git](https://github.com/yourusername/aether-os.git)
+git clone [https://github.com/DeltaEpiales/aether-os.git](https://github.com/DeltaEpiales/aether-os.git)
 cd aether-os
 
 
@@ -82,29 +82,17 @@ Key / Action
 
 Function
 
-F1
+F1 | Toggle between XMB and Desktop Mode
 
-Toggle between XMB and Desktop Mode
+H  | Toggle Dock / Taskbar visibility
 
-H
+Arrow Keys | Navigate XMB Interface
 
-Toggle Dock / Taskbar visibility
+Enter  | Launch App / Select Item
 
-Arrow Keys
+Backspace  | Go Back / Close App
 
-Navigate XMB Interface
-
-Enter
-
-Launch App / Select Item
-
-Backspace
-
-Go Back / Close App
-
-Right Click
-
-Open Context Menu
+Right Click  | Open Context Menu
 
 📄 License
 
