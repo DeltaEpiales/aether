@@ -1,67 +1,57 @@
-Aether OS
-![alt text](preview.png)
-Aether OS is a concept operating system shell built with React, Vite, and Electron. It provides an immersive, console-inspired interface (XMB) alongside a traditional desktop environment, focusing on aesthetics, local AI integration, and user customization.
 
-✨ Features
+---
 
-Dual Mode Interface:
+# Aether OS
 
-XMB Mode: A gamepad-friendly, horizontal media bar interface for launching apps and games.
+> An immersive, dual-mode operating system shell built with React, Vite, and Electron — blending console aesthetics with modern productivity tools. Designed for local AI integration, customization, and cross-platform deployment.
 
-Desktop Mode: A productive desktop environment with a Mac-style dock and window management.
+✨ **Features**
 
-System Applications:
+### 🎮 Dual Mode Interface
+- **XMB Mode**: Gamepad-friendly horizontal media bar for launching apps/games.
+- **Desktop Mode**: Mac-style dock + window management for productivity.
 
-Nucleus Files: A functional file explorer with context menus and file manipulation.
+### 💻 System Applications
+- **Nucleus Files**: File explorer with context menus and manipulation tools.
+- **Aether AI**: Local LLM via Ollama — private, offline AI assistance [1].
+- **User Management**: Multi-user support with admin privileges, custom themes, profile pictures.
+- **Security**: Custom pattern-based lock screens for profiles.
+- **Web Browser**: Integrated secure browser.
+- **Productivity Suite**: Text Editor, Calculator, Paint, System Monitor.
 
-Aether AI: Local LLM integration via Ollama for private, offline AI assistance.
+### 🎨 Immersive Visuals
+- Dynamic wave backgrounds reacting to system state [1].
+- Fully responsive animations powered by Framer Motion [1].
 
-User Management: Multi-user support with admin privileges, custom themes, and profile pictures.
+---
 
-Security: Custom pattern-based lock screens for user profiles.
+## 🚀 Getting Started
 
-Web Browser: Integrated secure web browser.
+### Prerequisites
+- Node.js (v16 or higher)
+- Ollama (Optional for AI features — run on `localhost:11434`)
 
-Productivity: Includes Text Editor, Calculator, Paint, and System Monitor.
-
-Immersive Visuals:
-
-Dynamic wave backgrounds that react to system state.
-
-Fully responsive animations powered by Framer Motion.
-
-🚀 Getting Started
-
-Prerequisites
-
-Node.js (v16 or higher)
-
-Ollama (Optional, for AI features): Download Ollama and ensure it is running on localhost:11434.
-
-Installation
-
-Clone the repository:
-
-git clone [https://github.com/DeltaEpiales/aether.git](https://github.com/DeltaEpiales/aether.git)
+### Installation
+```bash
+git clone https://github.com/DeltaEpiales/aether.git
 cd aether-os
-
-
-Install dependencies:
-
 npm install
+```
 
-
-Run in Development Mode:
-This command starts the React dev server and launches the Electron window.
-
+### Run in Development Mode
+```bash
 npm run dev:app
+```
+> Starts React dev server + Electron window.
 
+---
 
-🛠️ Building Executables
+## 🛠️ Building Executables
 
-To package Aether OS into an executable file (e.g., .exe, .dmg, .AppImage) for distribution:
+Package for distribution:
 
-# Build for your current operating system
+```bash
+# Build for current OS
 npm run dist
 
 # Build specifically for Windows
@@ -72,48 +62,122 @@ npm run dist:mac
 
 # Build specifically for Linux
 npm run dist:linux
+```
 
+> Output files located in `release/`.
 
-The output files will be located in the release/ directory.
+---
 
-🎮 Controls
+## 🎮 Controls
 
-Key / Action
+| Key        | Action                     |
+|------------|----------------------------|
+| F1         | Toggle XMB ↔ Desktop Mode  |
+| H          | Toggle Dock visibility     |
+| Arrow Keys | Navigate XMB Interface     |
+| Enter      | Launch App / Select Item   |
+| Backspace  | Go Back / Close App        |
+| Right Click| Open Context Menu          |
 
-Function
+---
 
-F1 | Toggle between XMB and Desktop Mode
+## 📊 System & File Management (via IPC)
 
-H  | Toggle Dock / Taskbar visibility
+### System Specs
+```js
+ipcMain.handle('system:specs', async () => {
+    // Returns CPU, RAM, OS, GPU info [2]
+});
+```
 
-Arrow Keys | Navigate XMB Interface
+### File Operations
+- `fs:create-dir`, `fs:write-file`, `fs:rename`, `fs:delete` — all handled via IPC with error handling and safe paths [2].
+- Trash support (`trashItem`) and home directory access (`getHomeDir`) included.
 
-Enter  | Launch App / Select Item
+---
 
-Backspace  | Go Back / Close App
+## 📡 Network & Updates
 
-Right Click  | Open Context Menu
+### Auto Update Check
+The app checks GitHub for the latest commit on `main` branch:
 
-📄 License
+```js
+const checkForUpdates = async () => {
+    setUpdateStatus('checking');
+    try {
+        const res = await fetch('https://api.github.com/repos/DeltaEpiales/aether/commits/main');
+        if (res.ok) {
+            const data = await res.json();
+            setRemoteCommit(data);
+            setTimeout(() => setUpdateStatus('uptodate'), 1500);
+        } else {
+            setUpdateStatus('error');
+        }
+    } catch (e) {
+        setUpdateStatus('error');
+    }
+};
+```
 
-MIT License
+> Status shown in UI: `Up to Date`, `Checking`, or `Connection Failed`.
 
-Copyright (c) R.O. - 2025 Aether Dev
+---
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## 📁 File System API (Exposed via preload.cjs)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+```js
+contextBridge.exposeInMainWorld('aetherSystem', {
+  getSpecs: () => ipcRenderer.invoke('system:specs'),
+  createDir: (path) => ipcRenderer.invoke('fs:create-dir', path),
+  delete: (path) => ipcRenderer.invoke('fs:delete', path),
+  readFile: (path) => ipcRenderer.invoke('fs:read-file', path),
+  getHomeDir: () => ipcRenderer.invoke('fs:get-home'),
+  trashItem: (path) => ipcRenderer.invoke('fs:trash-item', path),
+});
+```
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+---
+
+## 🧩 Shell Commands & Events
+
+### OS Shell
+- `shutdown`, `reboot`, `minimize` — exposed via IPC.
+- `notification(title, body)` for system alerts.
+
+### Game Activity
+```js
+onGameActivity(callback) => ipcRenderer.on('game:activity', (event, data) => callback(data));
+```
+
+---
+
+## 📄 License
+
+MIT License  
+Copyright (c) 2025 R.O. - Aether Dev  
+
+Permission is hereby granted to any person obtaining a copy of this software and associated documentation files (“Software”) to use, copy, modify, merge, publish, distribute, sublicense, or sell copies of the Software, subject to conditions.
+
+---
+
+## 📎 Contributing
+
+Fork → Clone → Commit → Push → PR.  
+All contributions welcome — especially for AI integration, UI polish, and cross-platform stability.
+
+---
+
+## 🌐 GitHub Repo
+
+[https://github.com/DeltaEpiales/aether](https://github.com/DeltaEpiales/aether)
+
+---
+
+## ✅ Notes
+
+- Built with React + Vite + Electron.
+- Uses `si` (system info) for hardware detection [2].
+- Audio control via `loudness` module — fallback to 100% if unavailable.
+- File system operations sandboxed in user’s `Documents/AetherOS_Files`.
+
+---
