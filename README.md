@@ -1,5 +1,5 @@
 Aether OS
-
+![alt text](preview.png)
 Aether OS is a concept operating system shell built with React, Vite, and Electron. It provides an immersive, console-inspired interface (XMB) alongside a traditional desktop environment, focusing on aesthetics, local AI integration, and user customization.
 
 ✨ Features
