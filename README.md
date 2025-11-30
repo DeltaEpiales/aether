@@ -1,5 +1,6 @@
 
 ---
+![aether xmb preview](preview.png)
 
 # Aether OS
 
