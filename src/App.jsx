@@ -4,13 +4,14 @@ import {
   Settings, Image as ImageIcon, Music, Video, Gamepad2, Globe, Users, 
   Folder, Power, Wifi, Battery, Clock, Monitor, HardDrive, FileText, X, 
   Maximize2, Minimize2, Play, Star, Trophy, MoreHorizontal, Volume2, 
-  Bluetooth, Shield, Smartphone, Cpu, Zap, Disc, Code, Terminal, 
+  Bluetooth, Shield, Smartphone, Cpu, Zap, Disc, Code, Terminal as TerminalIcon, 
   Brush, Calculator, Layout, Package, CloudRain, User, Plus, Trash2,
   Bot, Send, RefreshCw, ArrowLeft, File, Save,
   Layers, Download, Calendar, Command, Minus, Palette, Copy, Link, Lock,
   ArrowUp, Check, AlertCircle, Info, GitBranch, Volume1, Home, Grid,
   Maximize, MonitorUp, MousePointer2, MessageSquare, Sparkles, Activity,
-  ChevronDown, Edit3, Camera, UserPlus, ShieldAlert, KeyRound, ArrowRight
+  ChevronDown, Edit3, Camera, UserPlus, ShieldAlert, KeyRound, ArrowRight,
+  Github, Database, Eraser, Gauge
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -143,6 +144,68 @@ const useMenuNav = (itemCount, orientation = 'vertical', isActive = true) => {
     return { selectedIndex, setSelectedIndex };
 };
 
+/* --- NEW: GAMEPAD HOOK --- */
+const useGamepad = (onInput, active = true, deadzone = 0.5) => {
+    const lastInputTime = useRef(0);
+    const lastButtonState = useRef({}); 
+
+    useEffect(() => {
+        if (!active) return;
+        let animationFrameId;
+
+        const checkGamepad = () => {
+            const gamepads = navigator.getGamepads();
+            if (!gamepads) return;
+
+            const gp = Array.from(gamepads).find(g => g !== null); // Get first active gamepad
+            if (!gp) {
+                animationFrameId = requestAnimationFrame(checkGamepad);
+                return;
+            }
+
+            const now = Date.now();
+            // Debounce speed (150ms for nav)
+            if (now - lastInputTime.current < 150) { 
+                 animationFrameId = requestAnimationFrame(checkGamepad);
+                 return;
+            }
+
+            // Standard Mappings (Steam/XInput Standard)
+            // 0: A (Enter), 1: B (Back), 12: Up, 13: Down, 14: Left, 15: Right
+            let action = null;
+
+            // D-Pad / Buttons
+            if (gp.buttons[0].pressed) action = 'enter';
+            else if (gp.buttons[1].pressed) action = 'back';
+            else if (gp.buttons[12].pressed) action = 'up';
+            else if (gp.buttons[13].pressed) action = 'down';
+            else if (gp.buttons[14].pressed) action = 'left';
+            else if (gp.buttons[15].pressed) action = 'right';
+            
+            // Analog Stick (Left Stick)
+            else if (gp.axes[1] < -deadzone) action = 'up';
+            else if (gp.axes[1] > deadzone) action = 'down';
+            else if (gp.axes[0] < -deadzone) action = 'left';
+            else if (gp.axes[0] > deadzone) action = 'right';
+
+            if (action) {
+                onInput(action);
+                lastInputTime.current = now;
+                
+                // Haptic feedback if supported and not 'back' (too annoying)
+                if (gp.vibrationActuator && action !== 'back') {
+                    try { gp.vibrationActuator.playEffect("dual-rumble", { startDelay: 0, duration: 20, weakMagnitude: 0.2, strongMagnitude: 0.1 }); } catch(e){}
+                }
+            }
+
+            animationFrameId = requestAnimationFrame(checkGamepad);
+        };
+
+        animationFrameId = requestAnimationFrame(checkGamepad);
+        return () => cancelAnimationFrame(animationFrameId);
+    }, [active, onInput, deadzone]);
+};
+
 const useDraggable = (initialPosition = { x: 0, y: 0 }) => {
   const [position, setPosition] = useState(initialPosition);
   const [isDragging, setIsDragging] = useState(false);
@@ -184,10 +247,12 @@ const useIdleTimer = (timeout, onIdle) => {
     const reset = () => { clearTimeout(timer); timer = setTimeout(onIdle, timeout); };
     window.addEventListener('mousemove', reset);
     window.addEventListener('keydown', reset);
+    window.addEventListener('touchstart', reset);
     reset();
     return () => {
       window.removeEventListener('mousemove', reset);
       window.removeEventListener('keydown', reset);
+      window.removeEventListener('touchstart', reset);
       clearTimeout(timer);
     };
   }, [timeout, onIdle]);
@@ -262,6 +327,19 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1, bl
     resize();
 
     const drawWave = () => {
+      if (!dynamicWave) {
+          // Simple solid background for performance mode
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          const gradient = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, w);
+          gradient.addColorStop(0, currentBgColor.current);
+          gradient.addColorStop(1, '#000000');
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, w, h);
+          animationFrameId = requestAnimationFrame(drawWave);
+          return;
+      }
+
       const w = window.innerWidth;
       const h = window.innerHeight;
       const gradient = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w);
@@ -286,7 +364,7 @@ const WaveBackground = ({ bgColor, waveHue, dynamicWave, speedMultiplier = 1, bl
       ctx.globalCompositeOperation = 'screen';
       const lines = 28;
       const centerY = h * 0.65;
-      let waveBaseHue = dynamicWave ? currentWaveHue.current : getHueFromHex(currentBgColor.current);
+      let waveBaseHue = currentWaveHue.current;
 
       for (let i = 0; i < lines; i++) {
         ctx.beginPath();
@@ -323,10 +401,14 @@ const WindowManagerProvider = ({ children }) => {
     const [activeId, setActiveId] = useState(null);
     const [viewMode, setViewMode] = useState('xmb'); 
     
-    // Moved Settings to Global Context to fix Color Picker bug
+    // Global Settings
     const [settings, setSettings] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('aether_settings')) || { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
-        catch { return { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true }; }
+        try { 
+            const defaults = { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true, controllerVibration: true, controllerLayout: 'xbox' };
+            const saved = JSON.parse(localStorage.getItem('aether_settings'));
+            return { ...defaults, ...saved };
+        }
+        catch { return { hue: 210, speed: 1, bgColor: '#131c2e', dynamicWave: true, controllerVibration: true, controllerLayout: 'xbox' }; }
     });
 
     const updateSetting = (key, value) => {
@@ -595,6 +677,7 @@ const NetworkApp = ({ close }) => {
 const AboutSystemApp = ({ close }) => {
     const [specs, setSpecs] = useState(null);
     const [updateStatus, setUpdateStatus] = useState('idle');
+    const [remoteCommit, setRemoteCommit] = useState(null);
     const currentVersion = "v1.2.1"; 
 
     useEffect(() => {
@@ -611,7 +694,19 @@ const AboutSystemApp = ({ close }) => {
 
     const checkForUpdates = async () => {
         setUpdateStatus('checking');
-        setTimeout(() => setUpdateStatus('uptodate'), 2000);
+        try {
+            // Checking the provided GitHub repo for the latest commit
+            const res = await fetch('https://api.github.com/repos/DeltaEpiales/aether/commits/main');
+            if (res.ok) {
+                const data = await res.json();
+                setRemoteCommit(data);
+                setTimeout(() => setUpdateStatus('uptodate'), 1500); 
+            } else {
+                setUpdateStatus('error');
+            }
+        } catch (e) {
+            setUpdateStatus('error');
+        }
     };
 
     return (
@@ -650,15 +745,22 @@ const AboutSystemApp = ({ close }) => {
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                         <GitBranch size={18} className="text-blue-400"/>
-                        <span className="text-sm font-bold tracking-wide">System Update</span>
+                        <div>
+                            <div className="text-sm font-bold tracking-wide">System Update</div>
+                            <div className="text-[10px] opacity-40 font-mono">Repo: DeltaEpiales/aether</div>
+                        </div>
                     </div>
                     {updateStatus === 'idle' && (
                         <button onClick={checkForUpdates} className="px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs uppercase tracking-widest transition-all hover:scale-105">Check for Updates</button>
                     )}
                     {updateStatus === 'uptodate' && (
-                        <span className="text-xs text-green-400 uppercase tracking-widest flex items-center gap-2"><Check size={12}/> Up to Date</span>
+                        <div className="text-right">
+                            <span className="text-xs text-green-400 uppercase tracking-widest flex items-center gap-2 justify-end"><Check size={12}/> Up to Date</span>
+                            {remoteCommit && <span className="text-[9px] opacity-40 font-mono">Commit: {remoteCommit.sha.substring(0,7)}</span>}
+                        </div>
                     )}
-                    {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse font-mono">&gt; Contacting Server...</div>}
+                    {updateStatus === 'checking' && <div className="text-xs opacity-50 animate-pulse font-mono">&gt; Contacting GitHub...</div>}
+                    {updateStatus === 'error' && <div className="text-xs text-red-400 font-mono">Connection Failed</div>}
                 </div>
             </div>
         </div>
@@ -830,22 +932,43 @@ const InstalledApps = ({ close }) => {
 const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
     const [activeTab, setActiveTab] = useState('general'); 
     const { autoDesktop, toggleAutoDesktop, settings, updateSetting } = useContext(WindowContext);
+    const [connectedPad, setConnectedPad] = useState(null);
+
+    // Poll for gamepad name for the UI
+    useEffect(() => {
+        const check = () => {
+            const gps = navigator.getGamepads();
+            const gp = Array.from(gps).find(g => g !== null);
+            setConnectedPad(gp ? gp.id : null);
+            requestAnimationFrame(check);
+        };
+        check();
+    }, []);
     
+    const handleFactoryReset = () => {
+        if(confirm("WARNING: This will clear all local user data, settings, and files. Are you sure?")) {
+            localStorage.clear();
+            window.location.reload();
+        }
+    };
+
     return (
         <div className="flex h-full text-white">
             <div className="w-48 bg-black/20 border-r border-white/5 p-6 flex flex-col gap-2">
                 <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'general' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('general')}>
                     <Settings size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">System</span>
                 </div>
-                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'network' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('network')}>
-                    <Wifi size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Network</span>
+                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'controller' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('controller')}>
+                    <Gamepad2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Controller</span>
                 </div>
                 <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'audio' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('audio')}>
                     <Volume2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Audio</span>
                 </div>
             </div>
             <div className="flex-1 p-8 overflow-y-auto">
-                <h2 className="text-2xl font-light mb-8 border-b border-white/10 pb-4">{activeTab === 'general' ? 'General Settings' : activeTab === 'network' ? 'Network Configuration' : 'Audio Mixer'}</h2>
+                <h2 className="text-2xl font-light mb-8 border-b border-white/10 pb-4">
+                    {activeTab === 'general' ? 'General Settings' : activeTab === 'controller' ? 'Input Configuration' : 'Audio Mixer'}
+                </h2>
                 <div className="space-y-4">
                     {activeTab === 'general' && (
                         <>
@@ -860,26 +983,65 @@ const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, bright
                                         <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoDesktop ? 'left-6' : 'left-1'}`}></div>
                                     </div>
                                 </div>
-                                <div className="text-[10px] text-white/40 mt-2">Automatically switch to desktop mode when opening Files, Browser, or Terminal.</div>
                             </section>
                             <section className="p-4 rounded border bg-white/5 border-white/10">
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Primary Background Color</h3>
-                                <div className="flex items-center gap-4">
-                                    <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-10 h-10 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
-                                    <span className="font-mono text-sm">{settings.bgColor}</span>
-                                </div>
-                            </section>
-                            <section className="p-4 rounded border bg-white/5 border-white/10">
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Wave Dynamics</h3>
-                                <div className="flex justify-between items-center">
-                                    <span>{settings.dynamicWave ? 'Dynamic (XMB Style)' : 'Static (Mono Style)'}</span>
+                                <h3 className="text-xs uppercase opacity-50 mb-2">Visuals</h3>
+                                <div className="flex justify-between items-center mb-4">
+                                    <div className="flex flex-col">
+                                        <span>Performance Mode</span>
+                                        <span className="text-[10px] opacity-50">Disable Wave Animation (Saves Battery)</span>
+                                    </div>
                                     <button 
                                         onClick={() => updateSetting('dynamicWave', !settings.dynamicWave)}
-                                        className={`w-4 h-4 rounded-full transition-all ${settings.dynamicWave ? 'bg-green-400 shadow-[0_0_10px_lime]' : 'bg-slate-600'}`}
-                                    ></button>
+                                        className={`w-10 h-5 rounded-full relative transition-colors ${settings.dynamicWave ? 'bg-blue-500' : 'bg-slate-700'}`}
+                                    >
+                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.dynamicWave ? 'left-6' : 'left-1'}`}></div>
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                    <span className="text-sm">Primary Color</span>
+                                    <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-8 h-8 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
                                 </div>
                             </section>
+                            <section className="p-4 rounded border border-red-500/30 bg-red-900/10">
+                                <h3 className="text-xs uppercase text-red-400 mb-2 font-bold">Danger Zone</h3>
+                                <button onClick={handleFactoryReset} className="flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded text-xs font-bold uppercase transition-all">
+                                    <Eraser size={14} /> Factory Reset Aether OS
+                                </button>
+                            </section>
                         </>
+                    )}
+                    {activeTab === 'controller' && (
+                        <div className="space-y-4">
+                            <section className="p-4 rounded border bg-white/5 border-white/10 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10"><Gamepad2 size={100}/></div>
+                                <h3 className="text-xs uppercase opacity-50 mb-4">Connection Status</h3>
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-3 h-3 rounded-full ${connectedPad ? 'bg-green-400 shadow-[0_0_10px_#4ade80]' : 'bg-red-500'}`}></div>
+                                    <div className="font-mono text-sm max-w-[80%] truncate">
+                                        {connectedPad || "No Controller Detected"}
+                                    </div>
+                                </div>
+                                {connectedPad && <div className="mt-2 text-[10px] opacity-40">Steam Input / XInput Compatible Device Active</div>}
+                            </section>
+
+                            <section className="p-4 rounded border bg-white/5 border-white/10">
+                                <h3 className="text-xs uppercase opacity-50 mb-4">Haptics</h3>
+                                <div className="flex justify-between items-center">
+                                    <span>Vibration Feedback</span>
+                                    <button 
+                                        onClick={() => updateSetting('controllerVibration', !settings.controllerVibration)}
+                                        className={`w-10 h-5 rounded-full relative transition-colors ${settings.controllerVibration ? 'bg-blue-500' : 'bg-slate-700'}`}
+                                    >
+                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.controllerVibration ? 'left-6' : 'left-1'}`}></div>
+                                    </button>
+                                </div>
+                            </section>
+
+                            <div className="text-[10px] opacity-30 mt-8 p-4 border border-white/5 rounded">
+                                Aether OS supports all Steam-compatible controllers (PS5, Switch Pro, Steam Deck, Xbox) via the HTML5 Gamepad API. For best results, launch Aether through Steam or ensure Steam is running in the background to handle driver mapping.
+                            </div>
+                        </div>
                     )}
                     {activeTab === 'audio' && (
                         <section className="p-4 rounded border bg-white/5 border-white/10">
@@ -1342,6 +1504,69 @@ const TextEditorApp = ({ close }) => {
     );
 };
 
+
+const TerminalApp = ({ close }) => {
+    const [history, setHistory] = useState(['AetherOS Kernel v1.2.1 [Secure Mode]', 'Type "help" for commands.']);
+    const [input, setInput] = useState('');
+    const [cwd, setCwd] = useState('~');
+    const bottomRef = useRef(null);
+
+    useEffect(() => {
+        if(bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }, [history]);
+
+    const handleCommand = async (e) => {
+        e.preventDefault();
+        if (!input.trim()) return;
+        
+        const cmd = input.trim();
+        const newHistory = [...history, `${cwd} $ ${cmd}`];
+        setInput('');
+        
+        if (cmd === 'clear') {
+            setHistory([]);
+            return;
+        }
+        if (cmd === 'help') {
+            setHistory([...newHistory, 'Available commands: dir, cd, ipconfig, whoami, echo, clear, exit']);
+            return;
+        }
+        if (cmd === 'exit') {
+            close();
+            return;
+        }
+
+        if (window.aetherSystem?.execCommand) {
+            const output = await window.aetherSystem.execCommand(cmd);
+            setHistory([...newHistory, output]);
+        } else {
+            setHistory([...newHistory, 'Terminal not available in web mode.']);
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-black text-green-500 font-mono p-4 text-sm overflow-hidden" onClick={() => document.getElementById('term-input').focus()}>
+            <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+                {history.map((line, i) => (
+                    <div key={i} className="whitespace-pre-wrap break-words">{line}</div>
+                ))}
+                <div ref={bottomRef} />
+            </div>
+            <form onSubmit={handleCommand} className="mt-2 flex gap-2 items-center border-t border-green-900/30 pt-2">
+                <span className="text-blue-400 font-bold">{cwd} $</span>
+                <input 
+                    id="term-input"
+                    className="flex-1 bg-transparent outline-none text-green-400"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    autoFocus
+                    autoComplete="off"
+                />
+            </form>
+        </div>
+    );
+};
+
 /* --- 5. LEGACY XMB COMPONENTS (FOR ORIGINAL XMB MODE) --- */
 const WindowedApp = ({ title, onClose, children, width = 'w-[85%]', height = 'h-[80%]' }) => {
   const { position, dragRef, handleMouseDown, isDragging } = useDraggable({ x: window.innerWidth/2 - 400, y: window.innerHeight/2 - 300 });
@@ -1429,7 +1654,7 @@ const NotificationSystem = ({ notifications }) => {
 const LockScreen = ({ users, currentUser, onUnlock, onSwitchUser, playSuccess, playFail, updateLockPattern }) => {
     const isSetupMode = !currentUser.pattern || currentUser.pattern === '';
     const isNoLock = currentUser.pattern === 'none';
-    const [status, setStatus] = useState(isSetupMode ? 'CREATE PASSCODE (ARROWS)' : (isNoLock ? 'PRESS ENTER' : 'ENTER PASSCODE'));
+    const [status, setStatus] = useState(isSetupMode ? 'CREATE PASSCODE (D-PAD)' : (isNoLock ? 'PRESS A / ENTER' : 'ENTER PASSCODE'));
     const [inputMode, setInputMode] = useState(isSetupMode); 
     const [patternInput, setPatternInput] = useState([]);
     const [errorCount, setErrorCount] = useState(0);
@@ -1439,8 +1664,22 @@ const LockScreen = ({ users, currentUser, onUnlock, onSwitchUser, playSuccess, p
     const keyMap = { 'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right', 'Enter': 'enter' };
     const userPattern = currentUser.pattern ? currentUser.pattern.split(',') : ['up', 'up', 'down', 'down'];
     
+    // --- CONTROLLER INPUT ---
+    useGamepad((action) => {
+        if(action === 'back') {
+             // If locked out or just want to switch
+             onSwitchUser();
+             return;
+        }
+        // Map controller actions to keyboard keys for the handler
+        const simKey = { 'up': 'ArrowUp', 'down': 'ArrowDown', 'left': 'ArrowLeft', 'right': 'ArrowRight', 'enter': 'Enter' }[action];
+        if(simKey) handleKeydown({ key: simKey, preventDefault: () => {}, stopPropagation: () => {} });
+    }, true);
+
     const handleKeydown = useCallback((e) => {
-        e.preventDefault(); e.stopPropagation(); 
+        if(e.preventDefault) e.preventDefault(); 
+        if(e.stopPropagation) e.stopPropagation(); 
+
         if (isSetupMode) {
             if (e.key === ' ') { 
                 if (patternRef.current.length < 4) { setStatus('MIN 4 MOVES REQUIRED'); playFail(); return; }
@@ -1482,12 +1721,12 @@ const LockScreen = ({ users, currentUser, onUnlock, onSwitchUser, playSuccess, p
                         if (isSetupMode && !move) return null;
                         return (<div key={index} className={`w-12 h-12 flex items-center justify-center rounded-xl bg-black/50 transition-all duration-300 ${move ? 'scale-110 border border-white/20' : ''}`}><Icon size={20} className={`${showColor} transform ${rotation} transition-all duration-200`} /></div>);
                     })}
-                    {isSetupMode && patternInput.length === 0 && <span className="text-white/30 text-xs">USE ARROW KEYS</span>}
+                    {isSetupMode && patternInput.length === 0 && <span className="text-white/30 text-xs">USE D-PAD</span>}
                  </div>
              )}
-             {isSetupMode && <div className="mt-8 flex flex-col items-center gap-2 text-[10px] text-white/50 tracking-widest"><div>[ ARROWS ] to Create Pattern</div><div>[ SPACE ] to Save</div><div>[ N ] for No Passcode</div></div>}
-             {isNoLock && <div className="mt-8 text-[10px] text-white/30 tracking-widest">[ PRESS ENTER TO UNLOCK ]</div>}
-             {!isSetupMode && !isNoLock && (<div className="absolute bottom-10 flex flex-col items-center gap-2 opacity-50"><span className="text-[10px] uppercase tracking-widest">Authorized Access Only</span><span className="text-[10px] text-red-400 cursor-pointer hover:underline" onClick={onSwitchUser}>[ Switch User ]</span></div>)}
+             {isSetupMode && <div className="mt-8 flex flex-col items-center gap-2 text-[10px] text-white/50 tracking-widest"><div>[ D-PAD ] to Create Pattern</div><div>[ SPACE ] to Save</div></div>}
+             {isNoLock && <div className="mt-8 text-[10px] text-white/30 tracking-widest">[ PRESS A / ENTER TO UNLOCK ]</div>}
+             {!isSetupMode && !isNoLock && (<div className="absolute bottom-10 flex flex-col items-center gap-2 opacity-50"><span className="text-[10px] uppercase tracking-widest">Authorized Access Only</span><span className="text-[10px] text-red-400 cursor-pointer hover:underline" onClick={onSwitchUser}>[ Switch User (B) ]</span></div>)}
         </div>
     );
 }
@@ -1508,7 +1747,9 @@ const MacDock = ({ time, activeApp, closeApp, currentUser, visible, onLaunch, ap
           <DockItem icon={Home} label="Home" onClick={closeApp} />
           <DockItem icon={Globe} label="Browser" onClick={() => onLaunch('network')} isActive={activeApp === appRefMap.NETWORK} />
           <DockItem icon={Folder} label="Files" onClick={() => onLaunch('files')} isActive={activeApp === appRefMap.FILES} />
-          <DockItem icon={Terminal} label="Settings" onClick={() => onLaunch('settings')} isActive={activeApp === appRefMap.SETTINGS} />
+
+          <DockItem icon={TerminalIcon} label="Terminal" onClick={() => onLaunch('term')} isActive={activeApp === 'term'} />
+          <DockItem icon={TerminalIcon} label="Settings" onClick={() => onLaunch('settings')} isActive={activeApp === appRefMap.SETTINGS} />
           
           {activeApp && !['network', 'files', 'settings'].includes(Object.keys(appRefMap).find(key => appRefMap[key] === activeApp)?.toLowerCase()) && (
               <>
@@ -1606,7 +1847,9 @@ const DesktopIcons = () => {
         { id: 'notepad', label: 'Text Editor', icon: FileText, action: () => openWindow('notepad', 'Text Editor', <TextEditorApp />, FileText, true) },
         { id: 'calc', label: 'Calculator', icon: Calculator, action: () => openWindow('calc', 'Calculator', <CalculatorApp />, Calculator) },
         { id: 'paint', label: 'Paint', icon: Brush, action: () => openWindow('paint', 'Canvas Paint', <PaintApp />, Brush) },
-        { id: 'trash', label: 'Recycle Bin', icon: Trash2, action: handleTrash },
+        
+        { id: 'terminal', label: 'Terminal', icon: TerminalIcon, action: () => openWindow('term', 'Terminal', <TerminalApp />, TerminalIcon) },
+{ id: 'trash', label: 'Recycle Bin', icon: Trash2, action: handleTrash },
     ];
 
     return (
@@ -1655,10 +1898,14 @@ const SystemKernel = () => {
   const [brightness, setBrightness] = useState(1);
   const [wifiState, setWifiState] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(true);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const [contextMenu, setContextMenu] = useState(null); 
   const [notifications, setNotifications] = useState([]);
   const [runningGameId, setRunningGameId] = useState(null); 
+  
+  // Touch Handling State
+  const touchStartRef = useRef({ x: 0, y: 0 });
   
   const pushNotification = useCallback((title, message) => {
       const id = Date.now();
@@ -1687,12 +1934,26 @@ const SystemKernel = () => {
 
   const closeApp = useCallback(() => { playBack(); setXmbActiveApp(null); }, [playBack, setXmbActiveApp]);
 
+  // --- ACTIVATE CONTROLLER FOR XMB ---
+  useGamepad((action) => {
+      // Pass gamepad actions directly to the navigation handler
+      if (['up','down','left','right','enter','back'].includes(action)) {
+          handleNavigation(action);
+      }
+  }, isFocused && !isLocked && !xmbActiveApp); // Only active when focused and not in an app
+
   useIdleTimer(300000, () => { 
       if (currentUser && !isLocked) {
           setIsLocked(true);
           pushNotification('Security', 'Session timed out due to inactivity.');
       }
   });
+
+  useEffect(() => {
+      const handleResize = () => setIsMobile(window.innerWidth < 768);
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
       const handleContextMenu = (e) => {
@@ -1852,8 +2113,20 @@ const SystemKernel = () => {
        if (rowIndex !== null) {
           playSelect();
           const item = SYSTEM_DATA[colIndex].items[rowIndex];
-          if (window.aetherSystem?.launchGame && (item.source === 'Steam' || item.source === 'Epic')) window.aetherSystem.launchGame(item);
-          else if (item.action) item.action();
+          if (window.aetherSystem?.launchGame && (item.source === 'Steam' || item.source === 'Epic')) {
+              // FIX: Create a clean object without React components (icons) to avoid IPC Clone Error
+              const cleanData = { 
+                  id: item.id, 
+                  realId: item.realId, 
+                  source: item.source, 
+                  path: item.path, 
+                  name: item.label 
+              };
+              window.aetherSystem.launchGame(cleanData);
+          }
+          else if (item.action) {
+              item.action();
+          }
           else if (item.app) {
               if ([APP_REFS.FILES, APP_REFS.NETWORK, APP_REFS.NOTEPAD, APP_REFS.OLLAMA].includes(item.app)) {
                   launchProductiveApp(item.app);
@@ -1882,17 +2155,60 @@ const SystemKernel = () => {
   const handleScroll = useCallback((e) => {
     if (stateRef.current.isLocked || stateRef.current.xmbActiveApp || !stateRef.current.isFocused || scrollTimeoutRef.current) return;
     e.preventDefault(); 
+    // Debounce trackpad/mousewheel inputs
+    const now = Date.now();
+    if (scrollTimeoutRef.current && now - scrollTimeoutRef.current < 150) return;
+    scrollTimeoutRef.current = now;
+
     const direction = Math.abs(e.deltaY) > Math.abs(e.deltaX) && Math.abs(e.deltaY) > 5 ? (e.deltaY > 0 ? 'down' : 'up') : (Math.abs(e.deltaX) > 5 ? (e.deltaX > 0 ? 'right' : 'left') : null);
-    if (direction) { handleNavigation(direction); scrollTimeoutRef.current = setTimeout(() => { scrollTimeoutRef.current = null; }, 150); }
+    if (direction) { handleNavigation(direction); }
   }, [handleNavigation]);
 
+  const handleTouchStart = (e) => {
+      touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchEnd = (e) => {
+      if (stateRef.current.isLocked || stateRef.current.xmbActiveApp) return;
+      
+      const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+      const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+      
+      if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+          // Tap detected
+          handleNavigation('enter');
+          return;
+      }
+
+      if (Math.abs(deltaX) > Math.abs(deltaY)) {
+          // Horizontal Swipe
+          if (Math.abs(deltaX) > 50) handleNavigation(deltaX > 0 ? 'left' : 'right');
+      } else {
+          // Vertical Swipe
+          if (Math.abs(deltaY) > 50) handleNavigation(deltaY > 0 ? 'down' : 'up'); 
+      }
+  };
+
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown); containerRef.current.addEventListener('wheel', handleScroll, { passive: false });
-    return () => { window.removeEventListener('keydown', handleKeyDown); if (containerRef.current) containerRef.current.removeEventListener('wheel', handleScroll); if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current); };
+    window.addEventListener('keydown', handleKeyDown); 
+    if(containerRef.current) {
+        containerRef.current.addEventListener('wheel', handleScroll, { passive: false });
+        containerRef.current.addEventListener('touchstart', handleTouchStart, { passive: true });
+        containerRef.current.addEventListener('touchend', handleTouchEnd);
+    }
+    return () => { 
+        window.removeEventListener('keydown', handleKeyDown); 
+        if (containerRef.current) {
+            containerRef.current.removeEventListener('wheel', handleScroll);
+            containerRef.current.removeEventListener('touchstart', handleTouchStart);
+            containerRef.current.removeEventListener('touchend', handleTouchEnd);
+        }
+    };
   }, [handleKeyDown, handleScroll]);
   
   const activateSystem = () => { setIsFocused(true); if(containerRef.current) containerRef.current.focus(); };
-  const ITEM_WIDTH = 140; const LEFT_OFFSET = window.innerWidth * 0.20;
+  const ITEM_WIDTH = isMobile ? 100 : 140; 
+  const LEFT_OFFSET = window.innerWidth * (isMobile ? 0.35 : 0.20);
   const currentCategory = SYSTEM_DATA[colIndex]; const activeItem = rowIndex !== null ? currentCategory.items[rowIndex] : null;
 
   return (
@@ -1973,7 +2289,7 @@ const SystemKernel = () => {
                         const isRunning = item.id === runningGameId;
 
                         return ( 
-                            <div key={item.id} className={`relative flex items-center gap-6 transition-all duration-300 ease-out ${isActiveItem ? 'opacity-100 translate-x-12 z-10 scale-105' : 'opacity-40 translate-x-4 scale-95 blur-[0.5px]'} my-3 whitespace-nowrap`} style={{ width: '600px', height: '80px' }}> 
+                            <div key={item.id} className={`relative flex items-center gap-6 transition-all duration-300 ease-out ${isActiveItem ? 'opacity-100 translate-x-12 z-10 scale-105' : 'opacity-40 translate-x-4 scale-95 blur-[0.5px]'} my-3 whitespace-nowrap`} style={{ width: isMobile ? '300px' : '600px', height: '80px' }}> 
                                 {isActiveItem && <div className="absolute -left-6 top-0 bottom-0 w-[550px] bg-gradient-to-r from-white/10 to-transparent border-l-4 -z-10 animate-in slide-in-from-left-8 fade-in duration-300" style={{ borderColor: isRunning ? '#4ade80' : itemAccent }}></div>} 
                                 <div className={`w-16 h-16 flex items-center justify-center rounded-lg transition-all duration-300 ${isActiveItem ? 'bg-black/40 border border-white/20 shadow-lg backdrop-blur-sm' : 'bg-transparent border border-transparent'}`}> 
                                     {isRunning ? <Activity size={28} className="text-green-400 animate-pulse" /> : <item.icon size={28} strokeWidth={1.5} className={`transition-all duration-300 ${isActiveItem ? 'text-white' : 'text-slate-500'}`} />} 
@@ -2064,6 +2380,8 @@ const AetherShell = () => {
             if (type === 'files') openWindow('files', 'My PC', <FileManagerApp />, Folder, true);
             if (type === 'settings') openWindow('settings', 'System Configuration', <SettingsApp />, Settings);
             if (type === 'about') openWindow('about', 'About System', <AboutSystemApp />, Info);
+
+            if (type === 'term') openWindow('term', 'Terminal', <TerminalApp />, TerminalIcon);
         } else {
             if (type === 'network') setXmbActiveApp(APP_REFS.NETWORK);
             if (type === 'files') setXmbActiveApp(APP_REFS.FILES);
