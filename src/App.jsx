@@ -16,6 +16,51 @@ import {
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+
+/* --- LAUNCH OVERLAY ANIMATION --- */
+const LaunchOverlay = ({ item }) => {
+    if (!item) return null;
+    return (
+        <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none"
+        >
+            <motion.div 
+                initial={{ scale: 0.8, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                transition={{ type: "spring", damping: 20 }}
+                className="flex flex-col items-center gap-6"
+            >
+                <div className="relative">
+                    <div className="w-24 h-24 bg-[#1a1a1a] rounded-2xl border border-white/10 flex items-center justify-center shadow-2xl relative z-10">
+                        <item.icon size={48} className="text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]" />
+                    </div>
+                    <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full animate-pulse z-0"></div>
+                </div>
+                
+                <div className="flex flex-col items-center gap-2">
+                    <h2 className="text-2xl font-light tracking-widest text-white uppercase">{item.title}</h2>
+                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/50">
+                        <span className="w-2 h-2 bg-blue-500 rounded-full animate-ping"></span>
+                        Initializing Kernel...
+                    </div>
+                </div>
+
+                <div className="w-64 h-1 bg-white/10 rounded-full overflow-hidden mt-4">
+                    <motion.div 
+                        initial={{ width: "0%" }}
+                        animate={{ width: "100%" }}
+                        transition={{ duration: 1.5, ease: "easeInOut" }}
+                        className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
+                    />
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+};
+
 /* --- UTILS --- */
 function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -432,6 +477,21 @@ const WindowManagerProvider = ({ children }) => {
     });
     const [currentUser, setCurrentUser] = useState(null);
     const [xmbActiveApp, setXmbActiveApp] = useState(null);
+    // Launch State
+    const [launchingItem, setLaunchingItem] = useState(null);
+
+    const triggerLaunch = async (title, icon, action) => {
+        setLaunchingItem({ title, icon });
+        // Play sound if available in context scope, otherwise UI handles it
+        
+        // Artificial delay for the "feel" of the OS loading resources
+        setTimeout(async () => {
+            await action();
+            // Small delay before clearing overlay to ensure window is ready
+            setTimeout(() => setLaunchingItem(null), 500); 
+        }, 1500);
+    };
+
 
     const [autoDesktop, setAutoDesktop] = useState(() => {
         try { return JSON.parse(localStorage.getItem('aether_auto_desktop') || 'false'); }
@@ -499,8 +559,10 @@ const WindowManagerProvider = ({ children }) => {
         <WindowContext.Provider value={{ 
             windows, activeId, viewMode, autoDesktop, users, currentUser, xmbActiveApp, settings,
             setUsers, updateUsers, setCurrentUser, setXmbActiveApp, updateSetting,
-            openWindow, closeWindow, minimizeWindow, maximizeWindow, focusWindow, 
-            toggleViewMode, setViewMode, toggleAutoDesktop
+            openWindow, closeWindow, minimizeWindow, maximizeWindow, focusWindow,
+            toggleViewMode, setViewMode, toggleAutoDesktop, 
+            launchingItem, triggerLaunch // EXPOSED
+
         }}>
             {children}
         </WindowContext.Provider>
@@ -929,12 +991,19 @@ const InstalledApps = ({ close }) => {
     )
 }
 
-const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
-    const [activeTab, setActiveTab] = useState('general'); 
-    const { autoDesktop, toggleAutoDesktop, settings, updateSetting } = useContext(WindowContext);
-    const [connectedPad, setConnectedPad] = useState(null);
 
-    // Poll for gamepad name for the UI
+
+
+const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, brightness, setBrightness, wifiState, setWifiState }) => {
+    const { viewMode, autoDesktop, toggleAutoDesktop, settings, updateSetting, users } = useContext(WindowContext);
+    const [connectedPad, setConnectedPad] = useState(null);
+    const [activeTab, setActiveTab] = useState('general'); 
+
+    // XMB Controller State
+    const [xmbSection, setXmbSection] = useState('menu'); // 'menu' or 'control'
+    const { selectedIndex: menuIndex, setSelectedIndex: setMenuIndex } = useMenuNav(3, 'vertical', xmbSection === 'menu');
+    
+    // Poll for gamepad
     useEffect(() => {
         const check = () => {
             const gps = navigator.getGamepads();
@@ -945,130 +1014,218 @@ const SettingsApp = ({ currentUser, close, systemVolume, setSystemVolume, bright
         check();
     }, []);
     
+    // Controller Input Handler
+    useGamepad((action) => {
+        // Only capture input if we are in XMB mode OR if this is the active window in desktop mode
+        // (For simplicity in this patch, we assume XMB mode takes priority for gamepad)
+        if (viewMode !== 'xmb') return;
+
+        if (xmbSection === 'menu') {
+            if (action === 'down') setMenuIndex(prev => (prev + 1) % 3);
+            if (action === 'up') setMenuIndex(prev => (prev - 1 + 3) % 3);
+            if (action === 'enter' || action === 'right') {
+                setXmbSection('control');
+                const tabs = ['general', 'controller', 'audio'];
+                setActiveTab(tabs[menuIndex]);
+            }
+            if (action === 'back') close();
+        } 
+        else if (xmbSection === 'control') {
+            if (action === 'back' || action === 'left') setXmbSection('menu');
+            
+            // Toggle Logic
+            if (action === 'enter') {
+                if (activeTab === 'general') {
+                    // Simple toggle based on a fake "selected" item logic or just toggle the main switch
+                    // For this refined UI, ENTER toggles the main feature of the page
+                     if(autoDesktop) toggleAutoDesktop(); else toggleAutoDesktop(); // Toggle
+                }
+                if (activeTab === 'controller') updateSetting('controllerVibration', !settings.controllerVibration);
+            }
+        }
+    }, true);
+
     const handleFactoryReset = () => {
-        if(confirm("WARNING: This will clear all local user data, settings, and files. Are you sure?")) {
+        if(confirm("WARNING: This will clear all local user data. Are you sure?")) {
             localStorage.clear();
             window.location.reload();
         }
     };
 
+    // SHARED RENDER LOGIC
+    const isXmb = viewMode === 'xmb';
+    
+    // In XMB mode, we go full screen overlay. In Desktop, we fill the window.
+    const containerClass = isXmb 
+        ? "fixed inset-0 z-[100] bg-[#050505] text-white font-sans flex" 
+        : "flex h-full w-full bg-[#050505] text-white font-sans";
+
+    const menuItems = [
+        { id: 'general', label: 'System', icon: Settings },
+        { id: 'controller', label: 'Controller', icon: Gamepad2 },
+        { id: 'audio', label: 'Audio', icon: Volume2 }
+    ];
+
+    // Helper to determine active tab based on input mode
+    const currentTabId = isXmb ? menuItems[menuIndex].id : activeTab;
+
     return (
-        <div className="flex h-full text-white">
-            <div className="w-48 bg-black/20 border-r border-white/5 p-6 flex flex-col gap-2">
-                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'general' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('general')}>
-                    <Settings size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">System</span>
+        <div className={containerClass}>
+            {/* LEFT SIDEBAR */}
+            <div className="w-1/3 max-w-xs h-full border-r border-white/10 bg-[#0a0a0a] flex flex-col pt-12 relative z-20">
+                <div className="px-8 mb-8">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-blue-500 mb-2">Configuration</div>
+                    <div className="text-2xl font-light text-white">Settings</div>
                 </div>
-                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'controller' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('controller')}>
-                    <Gamepad2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Controller</span>
+                
+                <div className="flex-1 space-y-2 px-4">
+                    {menuItems.map((item, i) => {
+                        const isActive = isXmb ? i === menuIndex : activeTab === item.id;
+                        const isFocused = isXmb && xmbSection === 'menu' && isActive;
+                        
+                        return (
+                            <div 
+                                key={item.id}
+                                onClick={() => !isXmb && setActiveTab(item.id)}
+                                className={`flex items-center gap-4 p-4 rounded-xl transition-all duration-200 cursor-pointer ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5'} ${isFocused ? 'ring-1 ring-blue-500 bg-blue-500/10' : ''}`}
+                            >
+                                <item.icon size={20} />
+                                <span className="text-sm font-bold uppercase tracking-wider">{item.label}</span>
+                                {isActive && xmbSection === 'control' && isXmb && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></div>}
+                            </div>
+                        );
+                    })}
                 </div>
-                <div className={`p-3 rounded cursor-pointer transition-all ${activeTab === 'audio' ? 'bg-blue-600 text-white shadow-lg' : 'text-white/50 hover:bg-white/5'}`} onClick={() => setActiveTab('audio')}>
-                    <Volume2 size={18} className="mb-1"/> <span className="text-xs font-bold tracking-widest uppercase">Audio</span>
-                </div>
+
+                {isXmb && (
+                    <div className="p-8 text-[10px] text-white/30 space-y-2 font-mono">
+                        <div className="flex justify-between"><span>NAVIGATE</span> <span>D-PAD</span></div>
+                        <div className="flex justify-between"><span>SELECT</span> <span>A / ENTER</span></div>
+                        <div className="flex justify-between"><span>BACK</span> <span>B / ESC</span></div>
+                    </div>
+                )}
             </div>
-            <div className="flex-1 p-8 overflow-y-auto">
-                <h2 className="text-2xl font-light mb-8 border-b border-white/10 pb-4">
-                    {activeTab === 'general' ? 'General Settings' : activeTab === 'controller' ? 'Input Configuration' : 'Audio Mixer'}
-                </h2>
-                <div className="space-y-4">
-                    {activeTab === 'general' && (
-                        <>
-                            <section className="p-4 rounded border bg-white/5 border-white/10">
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Productivity</h3>
-                                <div className="flex justify-between items-center">
-                                    <span>Auto-Desktop for Apps</span>
-                                    <div 
-                                        className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${autoDesktop ? 'bg-blue-500' : 'bg-slate-700'}`}
-                                        onClick={toggleAutoDesktop}
-                                    >
-                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${autoDesktop ? 'left-6' : 'left-1'}`}></div>
-                                    </div>
-                                </div>
-                            </section>
-                            <section className="p-4 rounded border bg-white/5 border-white/10">
-                                <h3 className="text-xs uppercase opacity-50 mb-2">Visuals</h3>
-                                <div className="flex justify-between items-center mb-4">
-                                    <div className="flex flex-col">
-                                        <span>Performance Mode</span>
-                                        <span className="text-[10px] opacity-50">Disable Wave Animation (Saves Battery)</span>
-                                    </div>
-                                    <button 
-                                        onClick={() => updateSetting('dynamicWave', !settings.dynamicWave)}
-                                        className={`w-10 h-5 rounded-full relative transition-colors ${settings.dynamicWave ? 'bg-blue-500' : 'bg-slate-700'}`}
-                                    >
-                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.dynamicWave ? 'left-6' : 'left-1'}`}></div>
-                                    </button>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                    <span className="text-sm">Primary Color</span>
-                                    <input type="color" value={settings.bgColor} onChange={(e) => updateSetting('bgColor', e.target.value)} className="w-8 h-8 p-0 border-none rounded-full overflow-hidden cursor-pointer" />
-                                </div>
-                            </section>
-                            <section className="p-4 rounded border border-red-500/30 bg-red-900/10">
-                                <h3 className="text-xs uppercase text-red-400 mb-2 font-bold">Danger Zone</h3>
-                                <button onClick={handleFactoryReset} className="flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/40 rounded text-xs font-bold uppercase transition-all">
-                                    <Eraser size={14} /> Factory Reset Aether OS
-                                </button>
-                            </section>
-                        </>
-                    )}
-                    {activeTab === 'controller' && (
-                        <div className="space-y-4">
-                            <section className="p-4 rounded border bg-white/5 border-white/10 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10"><Gamepad2 size={100}/></div>
-                                <h3 className="text-xs uppercase opacity-50 mb-4">Connection Status</h3>
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-3 h-3 rounded-full ${connectedPad ? 'bg-green-400 shadow-[0_0_10px_#4ade80]' : 'bg-red-500'}`}></div>
-                                    <div className="font-mono text-sm max-w-[80%] truncate">
-                                        {connectedPad || "No Controller Detected"}
-                                    </div>
-                                </div>
-                                {connectedPad && <div className="mt-2 text-[10px] opacity-40">Steam Input / XInput Compatible Device Active</div>}
-                            </section>
 
-                            <section className="p-4 rounded border bg-white/5 border-white/10">
-                                <h3 className="text-xs uppercase opacity-50 mb-4">Haptics</h3>
-                                <div className="flex justify-between items-center">
-                                    <span>Vibration Feedback</span>
-                                    <button 
-                                        onClick={() => updateSetting('controllerVibration', !settings.controllerVibration)}
-                                        className={`w-10 h-5 rounded-full relative transition-colors ${settings.controllerVibration ? 'bg-blue-500' : 'bg-slate-700'}`}
-                                    >
-                                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.controllerVibration ? 'left-6' : 'left-1'}`}></div>
-                                    </button>
+            {/* RIGHT CONTENT PANEL */}
+            {/* We removed opacity-30 and blur-sm to fix the visibility issue */}
+            <div className={`flex-1 h-full bg-[#050505] relative flex flex-col px-12 py-12 transition-all duration-300 ${isXmb && xmbSection === 'menu' ? 'opacity-50 scale-95 origin-left' : 'opacity-100 scale-100'}`}>
+                
+                {/* GENERAL TAB */}
+                {(isXmb ? menuItems[menuIndex].id : activeTab) === 'general' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+                        <h2 className="text-3xl font-thin border-b border-white/10 pb-6 mb-8">System Preferences</h2>
+                        
+                        {/* Option 1 */}
+                        <div className={`flex items-center justify-between p-6 rounded-xl border transition-all ${isXmb && xmbSection === 'control' ? 'border-blue-500 bg-blue-500/5' : 'border-white/10 bg-white/5'}`}>
+                            <div className="flex items-center gap-4">
+                                <Monitor size={24} className="text-blue-400"/>
+                                <div>
+                                    <div className="text-lg font-medium">Auto-Desktop Mode</div>
+                                    <div className="text-xs opacity-50">Switch to desktop view when launching productive apps</div>
                                 </div>
-                            </section>
-
-                            <div className="text-[10px] opacity-30 mt-8 p-4 border border-white/5 rounded">
-                                Aether OS supports all Steam-compatible controllers (PS5, Switch Pro, Steam Deck, Xbox) via the HTML5 Gamepad API. For best results, launch Aether through Steam or ensure Steam is running in the background to handle driver mapping.
+                            </div>
+                            {/* Toggle Switch */}
+                            <div 
+                                onClick={toggleAutoDesktop}
+                                className={`w-14 h-7 rounded-full relative cursor-pointer transition-colors duration-300 ${autoDesktop ? 'bg-blue-500' : 'bg-white/10'}`}
+                            >
+                                <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${autoDesktop ? 'left-8' : 'left-1'}`}></div>
                             </div>
                         </div>
-                    )}
-                    {activeTab === 'audio' && (
-                        <section className="p-4 rounded border bg-white/5 border-white/10">
-                            <h3 className="text-xs uppercase opacity-50 mb-4">Master Volume</h3>
+
+                        {/* Option 2 */}
+                        <div className="flex items-center justify-between p-6 rounded-xl border border-white/10 bg-white/5">
                             <div className="flex items-center gap-4">
-                                <Volume2 size={20} className="text-white/60"/>
-                                <input 
-                                    type="range" 
-                                    min="0" 
-                                    max="100" 
-                                    value={Math.round(systemVolume * 100)} 
-                                    onChange={(e) => {
-                                        const val = parseInt(e.target.value) / 100;
-                                        setSystemVolume(val);
-                                        if(window.aetherSystem?.setVolume) window.aetherSystem.setVolume(e.target.value);
-                                    }}
-                                    className="flex-1 h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                                />
-                                <span className="w-8 text-right font-mono text-sm">{Math.round(systemVolume * 100)}%</span>
+                                <ImageIcon size={24} className="text-purple-400"/>
+                                <div>
+                                    <div className="text-lg font-medium">Dynamic Waves</div>
+                                    <div className="text-xs opacity-50">Enable background particle simulation</div>
+                                </div>
                             </div>
-                        </section>
-                    )}
-                </div>
+                            <div 
+                                onClick={() => updateSetting('dynamicWave', !settings.dynamicWave)}
+                                className={`w-14 h-7 rounded-full relative cursor-pointer transition-colors duration-300 ${settings.dynamicWave ? 'bg-purple-500' : 'bg-white/10'}`}
+                            >
+                                <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${settings.dynamicWave ? 'left-8' : 'left-1'}`}></div>
+                            </div>
+                        </div>
+                        
+                        <div className="pt-8 mt-8 border-t border-white/10">
+                             <button onClick={handleFactoryReset} className="flex items-center gap-3 px-6 py-3 bg-red-900/10 border border-red-500/30 text-red-400 hover:bg-red-900/30 rounded-lg text-sm font-bold uppercase tracking-wider transition-all">
+                                <Eraser size={16} /> Factory Reset System
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* CONTROLLER TAB */}
+                {(isXmb ? menuItems[menuIndex].id : activeTab) === 'controller' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+                        <h2 className="text-3xl font-thin border-b border-white/10 pb-6 mb-8">Input Devices</h2>
+                        
+                        <div className="p-8 bg-gradient-to-br from-white/5 to-transparent rounded-2xl border border-white/10 flex items-center gap-8">
+                            <div className={`w-24 h-24 rounded-full flex items-center justify-center border-4 ${connectedPad ? 'border-green-500/30 bg-green-500/10 text-green-400' : 'border-red-500/30 bg-red-500/10 text-red-400'}`}>
+                                <Gamepad2 size={48} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-bold uppercase tracking-widest opacity-50 mb-1">Status</div>
+                                <div className="text-3xl font-bold uppercase tracking-widest mb-2">{connectedPad ? "Connected" : "No Device"}</div>
+                                <div className="text-sm font-mono opacity-50">{connectedPad || "Plug in a USB or Bluetooth controller"}</div>
+                            </div>
+                        </div>
+
+                         <div className={`flex items-center justify-between p-6 rounded-xl border transition-all ${isXmb && xmbSection === 'control' ? 'border-blue-500 bg-blue-500/5' : 'border-white/10 bg-white/5'}`}>
+                            <div className="flex items-center gap-4">
+                                <Zap size={24} className="text-yellow-400"/>
+                                <div>
+                                    <div className="text-lg font-medium">Haptic Feedback</div>
+                                    <div className="text-xs opacity-50">Enable vibration for supported controllers</div>
+                                </div>
+                            </div>
+                            <div 
+                                onClick={() => updateSetting('controllerVibration', !settings.controllerVibration)}
+                                className={`w-14 h-7 rounded-full relative cursor-pointer transition-colors duration-300 ${settings.controllerVibration ? 'bg-yellow-500' : 'bg-white/10'}`}
+                            >
+                                <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${settings.controllerVibration ? 'left-8' : 'left-1'}`}></div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* AUDIO TAB */}
+                {(isXmb ? menuItems[menuIndex].id : activeTab) === 'audio' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+                        <h2 className="text-3xl font-thin border-b border-white/10 pb-6 mb-8">Master Audio</h2>
+                        
+                        <div className={`p-12 rounded-3xl border transition-all ${isXmb && xmbSection === 'control' ? 'bg-blue-600/10 border-blue-500' : 'bg-white/5 border-white/10'}`}>
+                             <div className="flex justify-between items-end mb-8">
+                                <Volume2 size={48} className="text-white/80"/>
+                                <span className="text-8xl font-thin tracking-tighter">{Math.round(systemVolume * 100)}<span className="text-2xl opacity-50">%</span></span>
+                            </div>
+                            
+                            {/* Visual Bar */}
+                            <div className="w-full h-6 bg-black/50 rounded-full overflow-hidden border border-white/10 p-1">
+                                <div className="h-full bg-blue-500 rounded-full transition-all duration-100 ease-out shadow-[0_0_20px_#3b82f6]" style={{ width: `${systemVolume * 100}%` }}></div>
+                            </div>
+
+                            {!isXmb && (
+                                <input 
+                                    type="range" min="0" max="100" 
+                                    value={Math.round(systemVolume * 100)} 
+                                    onChange={(e) => { const val = parseInt(e.target.value) / 100; setSystemVolume(val); if(window.aetherSystem?.setVolume) window.aetherSystem.setVolume(e.target.value); }}
+                                    className="w-full mt-8"
+                                />
+                            )}
+
+                            {isXmb && <div className="text-center mt-6 text-xs uppercase tracking-widest opacity-40">Use System Volume Keys to Adjust</div>}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
-    )
-}
+    );
+};
+
 
 const UserManagementApp = ({ close, users, currentUser, updateUsers, updateLockPattern }) => {
     const userList = users || [{ id: 'u1', name: 'User', color: '#333' }];
@@ -1914,7 +2071,7 @@ const SystemKernel = () => {
       window.aetherSystem?.sendNotification(title, message);
   }, []);
 
-  const { users, currentUser, setCurrentUser, updateUsers, xmbActiveApp, setXmbActiveApp, setViewMode, autoDesktop, settings, updateSetting } = useContext(WindowContext);
+  const { users, currentUser, setCurrentUser, updateUsers, xmbActiveApp, setXmbActiveApp, setViewMode, autoDesktop, settings, updateSetting, triggerLaunch } = useContext(WindowContext);
   
   const [loginSelection, setLoginSelection] = useState(0);
   const [gameList, setGameList] = useState([]);
@@ -2014,13 +2171,19 @@ const SystemKernel = () => {
     loadGames();
 
     if (window.aetherSystem?.onGameActivity) {
+        if (window.aetherSystem?.onGameActivity) {
         window.aetherSystem.onGameActivity((data) => {
-            setRunningGameId(data.id);
-            setGameList(prev => prev.map(g => {
-                if (g.id === data.id) return { ...g, timePlayed: data.timePlayed };
-                return g;
-            }));
+            if (data.status === 'stopped') {
+                setRunningGameId(null);
+            } else {
+                setRunningGameId(data.id);
+                setGameList(prev => prev.map(g => {
+                    if (g.id === data.id) return { ...g, timePlayed: data.timePlayed };
+                    return g;
+                }));
+            }
         });
+    }
     }
 
     return () => { clearTimeout(bootTimer); };
@@ -2113,27 +2276,41 @@ const SystemKernel = () => {
        if (rowIndex !== null) {
           playSelect();
           const item = SYSTEM_DATA[colIndex].items[rowIndex];
-          if (window.aetherSystem?.launchGame && (item.source === 'Steam' || item.source === 'Epic')) {
-              // FIX: Create a clean object without React components (icons) to avoid IPC Clone Error
-              const cleanData = { 
-                  id: item.id, 
-                  realId: item.realId, 
-                  source: item.source, 
-                  path: item.path, 
-                  name: item.label 
-              };
-              window.aetherSystem.launchGame(cleanData);
-          }
-          else if (item.action) {
-              item.action();
-          }
-          else if (item.app) {
-              if ([APP_REFS.FILES, APP_REFS.NETWORK, APP_REFS.NOTEPAD, APP_REFS.OLLAMA].includes(item.app)) {
-                  launchProductiveApp(item.app);
-              } else {
-                  setXmbActiveApp(item.app);
+          
+          // WRAPPER FOR LAUNCH ANIMATION
+          const performAction = () => {
+              if (window.aetherSystem?.launchGame && (item.source === 'Steam' || item.source === 'Epic')) {
+                  const cleanData = { 
+                      id: item.id, 
+                      realId: item.realId, 
+                      source: item.source, 
+                      path: item.path, 
+                      name: item.label 
+                  };
+                  window.aetherSystem.launchGame(cleanData);
               }
+              else if (item.action) {
+                  item.action();
+              }
+              else if (item.app) {
+                  if ([APP_REFS.FILES, APP_REFS.NETWORK, APP_REFS.NOTEPAD, APP_REFS.OLLAMA].includes(item.app)) {
+                      launchProductiveApp(item.app);
+                  } else {
+                      setXmbActiveApp(item.app);
+                  }
+              }
+          };
+
+          // ANIMATION LOGIC: Only animate Games or Heavy Apps (Paint/AI)
+          // System tools (Settings, Files, Calc) skip the overlay for speed.
+          const heavyApps = ['ollama', 'paint', 'music']; 
+          
+          if (item.source || (item.app && heavyApps.includes(item.app))) {
+              triggerLaunch(item.label, item.icon || Package, performAction);
+          } else {
+              performAction();
           }
+
        }
     } else if (direction === 'back') { if(rowIndex !== null) { setRowIndex(null); playBack(); } else if (colIndex !== 2) { setColIndex(2); playBack(); } }
   }, [users, loginSelection, SYSTEM_DATA, playNav, playLogin, playSelect, playBack, autoDesktop]); 
@@ -2301,7 +2478,12 @@ const SystemKernel = () => {
                                             {item.source && <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-white/10 text-white/60">{item.source}</span>}
                                             {item.subtext && <span className="text-[10px] font-bold uppercase tracking-widest drop-shadow-md opacity-80" style={{ color: itemAccent }}>{item.subtext}</span>}
                                             {item.timePlayed !== undefined && <span className="text-[10px] font-mono opacity-60 flex items-center gap-1"><Clock size={10} /> {(item.timePlayed / 60).toFixed(1)} HRS</span>}
-                                            {isRunning && <span className="text-[9px] font-bold uppercase tracking-widest text-green-400 animate-pulse">● RUNNING</span>}
+                                            {isRunning && (
+                                                <div className="flex items-center gap-2 px-2 py-0.5 bg-green-900/40 border border-green-500/30 rounded-full animate-pulse">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                                                    <span className="text-[9px] font-bold uppercase tracking-widest text-green-400">PLAYING</span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div> 
@@ -2330,7 +2512,7 @@ const SystemKernel = () => {
 };
 
 const AetherShell = () => {
-    const { viewMode, setViewMode, currentUser, users, xmbActiveApp, setXmbActiveApp, openWindow, settings } = useContext(WindowContext);
+    const { viewMode, setViewMode, currentUser, users, xmbActiveApp, setXmbActiveApp, openWindow, settings, launchingItem } = useContext(WindowContext);
     const [showDock, setShowDock] = useState(false);
     const [time, setTime] = useState(new Date());
 
@@ -2434,6 +2616,10 @@ const AetherShell = () => {
                 />
             )}
             
+            
+            <AnimatePresence>
+                {launchingItem && <LaunchOverlay item={launchingItem} />}
+            </AnimatePresence>
             <div className="fixed bottom-4 right-4 z-[1000] text-[10px] text-white/20 pointer-events-none">F1: SWITCH VIEW</div>
         </div>
     );
